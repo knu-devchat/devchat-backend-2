@@ -59,7 +59,8 @@ INSTALLED_APPS = [
 
     # local apps
     'login',
-
+    'chat',
+    
     # allauth 관련 (github oauth 설정에 필요)
     'django.contrib.sites',
     'allauth',
