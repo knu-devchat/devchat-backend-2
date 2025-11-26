@@ -6,12 +6,14 @@ from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseNotFou
 from django.views.decorators.http import require_POST, require_GET
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
+from django.contrib.auth.decorators import login_required
 import json
 
 
 # Create your views here.
 @csrf_exempt
 @require_POST
+@login_required
 def create_chat_room(request):
     """채팅방 생성해서 room_id 반환"""
     # 0. 현재 사용자 프로필 가져오기
@@ -46,8 +48,25 @@ def create_chat_room(request):
 
 
 @require_GET
+@login_required
 def generate_TOTP(request, room_id):
     """totp 6자리 숫자 반환"""
+    # 0. 추가 인증
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+        invite_code = data.get('invite_code')
+
+        room = get_object_or_404(ChatRoom, room_id=room_id)
+        user_profile = UserProfile.objects.get(user=request.user)
+
+        if room.admin != user_profile and user_profile not in room.participants.all():
+            if not invite_code or invite_code != room.invite_code:
+                return HttpResponseBadRequest("Invalid invite code or unauthorized access")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON")
+    except UserProfile.DoesNotExist:
+        return HttpResponseBadRequest("User profile not found")
+
     # 1. DB에서 비밀키 가져와서 복호화
     secret = get_room_secret(room_id)
     if secret is None:
@@ -61,6 +80,7 @@ def generate_TOTP(request, room_id):
     return JsonResponse({"totp": code, "interval": totp.interval})
 
 @require_POST
+@login_required
 def join_room(request):
     """사용자가 totp 인증을 통해 방에 참여"""
     # req: totp(123456)
@@ -69,12 +89,14 @@ def join_room(request):
     pass
 
 @require_GET
+@login_required
 def enter_room(request):
     """이미 참여한 방은 인증 없이 입장"""
     # res: result(entered), room_id(12)
     pass
 
 @require_GET
+@login_required
 def list_messages(request, room_name):
     """채팅방 이름으로 최근 메시지를 조회"""
     # room = get_object_or_404(ChatRoom, room_name=room_name)
