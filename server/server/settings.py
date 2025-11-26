@@ -40,11 +40,13 @@ if len(MASTER_KEY) not in (16, 24, 32):
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
-CORS_ALLOWED_ALL_ORIGINS = os.environ.get('CORS_ALLOWED_ALL_ORIGINS', 'False').lower() == 'true'
-if not CORS_ALLOWED_ALL_ORIGINS:
+CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False').lower() == 'true'
+if not CORS_ALLOW_ALL_ORIGINS:
     CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
 CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
 
+# CORS 쿠키/세션 허용
+CORS_ALLOW_CREDENTIALS = True
 
 # Application definition
 
@@ -99,10 +101,12 @@ SOCIALACCOUNT_ONLY = True
 # Ensure email verification behavior is compatible with SOCIALACCOUNT_ONLY
 # (required by allauth checks). Use 'none' to skip local email verification.
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+ACCOUNT_EMAIL_REQUIRED = False
 ACCOUNT_EMAIL_VERIFICATION = 'none'
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # 최상단에 위치
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

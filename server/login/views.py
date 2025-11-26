@@ -2,10 +2,12 @@ from django.shortcuts import render
 from django.conf import settings
 from django.http import JsonResponse
 from .models import UserProfile
+from django.views.decorators.http import require_POST, require_GET
 
 def home(request):
     return render(request, 'index.html')
 
+@require_GET
 def current_user(request):
     """현재 로그인된 사용자 정보 반환"""
     if request.user.is_authenticated:
