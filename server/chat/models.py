@@ -1,5 +1,5 @@
 from django.db import models
-from django.contrib.auth.models import User
+from login.models import User
 from django.conf import settings
 
 # Create your models here.
@@ -7,8 +7,8 @@ class ChatRoom(models.Model):
     room_id = models.AutoField(primary_key=True)
     room_name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True)
-    participants = models.ManyToManyField(settings.AUTH_USER_MODEL, related_name='chatrooms')
-    admin = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='admin_chatrooms')
+    participants = models.ManyToManyField(User, related_name='chatrooms')
+    admin = models.ForeignKey(User, on_delete=models.CASCADE, related_name='admin_chatrooms')
 
     # 채팅방 타입
     ROOM_TYPES = [
@@ -31,7 +31,7 @@ class ChatRoom(models.Model):
     
 class UserChatRoomActivity(models.Model):
     """사용자의 채팅방별 활동 정보"""
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
     chatroom = models.ForeignKey(ChatRoom, on_delete=models.CASCADE)
     
     # 사용자별 채팅방 설정
