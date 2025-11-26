@@ -61,4 +61,3 @@ class GithubFriend(models.Model):
 
     def __str__(self):
         return f"{self.user.username} -> {self.friend_username} ({self.relationship_type})"
-    
