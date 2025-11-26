@@ -51,33 +51,35 @@ def create_chat_room(request):
 @login_required
 def generate_TOTP(request, room_id):
     """totp 6자리 숫자 반환"""
-    # 0. 추가 인증
+
+    # 1. 채팅방 존재 확인
+    room = get_object_or_404(ChatRoom, room_id=room_id)
+
+    # 2. 현재 사용자 프로필 가져오기
     try:
-        data = json.loads(request.body.decode('utf-8'))
-        invite_code = data.get('invite_code')
-
-        room = get_object_or_404(ChatRoom, room_id=room_id)
         user_profile = UserProfile.objects.get(user=request.user)
-
-        if room.admin != user_profile and user_profile not in room.participants.all():
-            if not invite_code or invite_code != room.invite_code:
-                return HttpResponseBadRequest("Invalid invite code or unauthorized access")
-    except json.JSONDecodeError:
-        return HttpResponseBadRequest("Invalid JSON")
     except UserProfile.DoesNotExist:
         return HttpResponseBadRequest("User profile not found")
+    
+    # 3. 권한 확인: 방장이거나 참여자여야 함
+    if room.admin != user_profile and user_profile not in room.participants.all():
+        return JsonResponse({"error": "You are not authorized to access this room"}, status=403)
 
-    # 1. DB에서 비밀키 가져와서 복호화
+    # 4. DB에서 채팅방 비밀키 가져와서 복호화
     secret = get_room_secret(room_id)
     if secret is None:
         return HttpResponseNotFound("secret not found")
     
-    # 2. 가져온 비밀키로 totp 생성, 6자리 코드 생성 -> 이 값을 api로 프론트에 내려줌
+    # 5. 복호화된 비밀키로 TOTP 생성
     totp = pyotp.TOTP(secret)
     code = totp.now()
 
-    # 3. totp 프론트엔드로 반환
-    return JsonResponse({"totp": code, "interval": totp.interval})
+    return JsonResponse({
+        "totp": code,
+        "interval": totp.interval,
+        "room_name": room.room_name,
+        "room_id": room.room_id
+    })
 
 @require_POST
 @login_required
