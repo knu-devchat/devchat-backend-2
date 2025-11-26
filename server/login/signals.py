@@ -1,7 +1,8 @@
 from django.dispatch import receiver
+from django.contrib.auth.models import User
 from allauth.socialaccount.signals import pre_social_login, social_account_added
 from allauth.socialaccount.models import SocialAccount
-from .models import User, GithubFriend
+from .models import UserProfile, GithubFriend
 import requests
 
 @receiver(pre_social_login)
@@ -11,6 +12,32 @@ def populate_user_info(sender, request, sociallogin, **kwargs):
         user_data = sociallogin.account.extra_data
         user = sociallogin.user
         
+        # 이메일이 없으면 임시 이메일 생성
+        if not user.email:
+            github_username = user_data.get('login', 'unknown')
+            user.email = f"{github_username}@github.temp"
+        
+        # username 설정
+        if not user.username:
+            user.username = user_data.get('login', f'github_user_{user_data.get("id")}')
+        
+        user.save()
+        
+        # UserProfile 생성 또는 업데이트
+        profile, created = UserProfile.objects.get_or_create(
+            user=user,
+            defaults={
+                'github_username': user_data.get('login'),
+                'github_id': str(user_data.get('id')),
+                'profile_image': user_data.get('avatar_url'),
+                'github_bio': user_data.get('bio'),
+                'github_company': user_data.get('company'),
+                'github_location': user_data.get('location'),
+                'github_followers': user_data.get('followers', 0),
+                'github_following': user_data.get('following', 0),
+            }
+        )
+
         # GitHub 정보를 User 모델에 저장
         user.github_username = user_data.get('login')
         user.github_id = str(user_data.get('id'))

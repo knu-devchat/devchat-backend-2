@@ -28,7 +28,7 @@ class UserProfile(models.Model):
     @property
     def email(self):
         """User 모델의 email에 접근하는 프로퍼티"""
-        return self.user.email
+        return self.user.email or ''
 
     @property
     def username(self):
