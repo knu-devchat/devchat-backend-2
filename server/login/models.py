@@ -1,10 +1,11 @@
-from django.contrib.auth.models import AbstractUser
+from django.contrib.auth.models import User
 from django.db import models
 
 # Create your models here.
-class User(AbstractUser):
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
+    
     # 기본 필드 확장
-    email = models.EmailField(unique=True)
     profile_image = models.URLField(blank=True, null=True)
     is_online = models.BooleanField(default=False)
     last_seen = models.DateTimeField(blank=True, null=True)
@@ -21,11 +22,18 @@ class User(AbstractUser):
     github_followers = models.IntegerField(default=0)
     github_following = models.IntegerField(default=0)
 
-    USERNAME_FIELD = 'email'
-    REQUIRED_FIELDS = ['username']
-
     def __str__(self):
-        return self.email or self.username
+        return f"{self.user.username}'s profile"
+
+    @property
+    def email(self):
+        """User 모델의 email에 접근하는 프로퍼티"""
+        return self.user.email
+
+    @property
+    def username(self):
+        """User 모델의 username에 접근하는 프로퍼티"""
+        return self.user.username
     
 class GithubFriend(models.Model):
     """Github에서 가져온 친구 정보"""
