@@ -34,7 +34,7 @@ def load_room_name(request):
     return room_name
 
 #테이블에 암호문 저장
-def save_room_secret_key(room_name: str, encrypted: str):
+def save_room_secret_key(room_name: str, encrypted: str, admin_profile):
     """
     ChatRoom, SecureData를 트랜잭션으로 함께 저장.
     - encrypted: base64(iv + ciphertext) 문자열
@@ -43,7 +43,12 @@ def save_room_secret_key(room_name: str, encrypted: str):
     """
     try:
         with transaction.atomic():
-            room = ChatRoom.objects.create(room_name=room_name)
+            room = ChatRoom.objects.create(
+                room_name=room_name,
+                admin=admin_profile
+            )
+            room.participants.add(admin_profile)
+
             secure = SecureData.objects.create(
                 room=room,
                 encrypted_value=encrypted,  # base64(iv + ciphertext)
