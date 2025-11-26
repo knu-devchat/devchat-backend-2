@@ -10,8 +10,7 @@ import json
 
 
 # Create your views here.
-
-@csrf_exempt          # ✅ CSRF 검사 끔 (Postman에서 테스트하려고)
+@csrf_exempt
 @require_POST
 def create_chat_room(request):
     """
