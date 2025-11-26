@@ -46,5 +46,4 @@ txaio==25.9.2
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 urllib3==2.5.0
-uv==0.9.11
 zope.interface==8.1.1
