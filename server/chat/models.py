@@ -28,6 +28,26 @@ class ChatRoom(models.Model):
     
     def __str__(self):
         return self.room_name
+    
+class UserChatRoomActivity(models.Model):
+    """사용자의 채팅방별 활동 정보"""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    chatroom = models.ForeignKey(ChatRoom, on_delete=models.CASCADE)
+    
+    # 사용자별 채팅방 설정
+    is_muted = models.BooleanField(default=False)
+    is_pinned = models.BooleanField(default=False)
+    last_read_at = models.DateTimeField(blank=True, null=True)
+    joined_at = models.DateTimeField(auto_now_add=True)
+    
+    # 알림 설정
+    notifications_enabled = models.BooleanField(default=True)
+    
+    class Meta:
+        unique_together = ['user', 'chatroom']
+    
+    def __str__(self):
+        return f"{self.user.username} in {self.chatroom.room_name}"
 
 
 class SecureData(models.Model):
