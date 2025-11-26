@@ -68,6 +68,19 @@ def generate_TOTP(request, room_id):
     # 3. totp 프론트엔드로 반환
     return JsonResponse({"totp": code, "interval": totp.interval})
 
+@require_POST
+def join_room(request):
+    """사용자가 totp 인증을 통해 방에 참여"""
+    # req: totp(123456)
+    # res: result(success), room_id(12)
+    # res: error(nvalid_totp)
+    pass
+
+@require_GET
+def enter_room(request):
+    """이미 참여한 방은 인증 없이 입장"""
+    # res: result(entered), room_id(12)
+    pass
 
 @require_GET
 def list_messages(request, room_name):
