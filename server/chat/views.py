@@ -13,12 +13,7 @@ import json
 @csrf_exempt
 @require_POST
 def create_chat_room(request):
-    """
-    req: room_name 전달
-    res:
-        - DB ChatRoom에 room_id, room_name 저장
-        - DB SecureData에 암호화된 채팅방 비밀키 저장
-    """
+    """채팅방 생성해서 room_id 반환"""
     # 0. 현재 사용자 프로필 가져오기
     try:
         admin_profile = UserProfile.objects.get(user=request.user)
@@ -52,10 +47,7 @@ def create_chat_room(request):
 
 @require_GET
 def generate_TOTP(request, room_id):
-    """
-    req: 채팅방 생성 완료 -> 6자리 코드 필요
-    res: 6자리 코드 반환
-    """
+    """totp 6자리 숫자 반환"""
     # 1. DB에서 비밀키 가져와서 복호화
     secret = get_room_secret(room_id)
     if secret is None:
@@ -84,9 +76,7 @@ def enter_room(request):
 
 @require_GET
 def list_messages(request, room_name):
-    """
-    채팅방 이름으로 최근 메시지를 조회
-    """
+    """채팅방 이름으로 최근 메시지를 조회"""
     # room = get_object_or_404(ChatRoom, room_name=room_name)
     # messages = room.messages.all()
 
