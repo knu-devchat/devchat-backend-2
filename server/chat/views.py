@@ -9,6 +9,8 @@ from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 import json
+from django.contrib.auth.models import User
+
 
 # Create your views here.
 @csrf_exempt
@@ -16,6 +18,10 @@ import json
 def create_chat_room(request):
     """채팅방 생성해서 room_id 반환"""
     try:
+        # 0. 익명 사용자 거부
+        if not request.user.is_authenticated: 
+            return JsonResponse({"error": "Authentication required"}, status=401)
+
         # 0. 현재 사용자 프로필 가져오기
         try:
             admin_profile = UserProfile.objects.get(user=request.user)
@@ -40,11 +46,15 @@ def create_chat_room(request):
 
         # 성공: room_or_resp는 ChatRoom 인스턴스
         room = room_or_resp
-        return JsonResponse({
+
+        response = {
             "room_id": room.room_id,
             "room_name": room.room_name,
-            "admin": admin_profile.username
-        })
+            "admin": admin_profile.username,
+            "status": "success"
+        }
+        
+        return JsonResponse(response)
     
     except Exception:
         return JsonResponse({
