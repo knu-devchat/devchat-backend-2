@@ -46,7 +46,7 @@ if not CORS_ALLOW_ALL_ORIGINS:
 CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
 
 # 세션 설정 강화
-SESSION_COOKIE_AGE = 1209600  # 2주
+SESSION_COOKIE_DOMAIN = None # 현재 도메인만 사용
 SESSION_COOKIE_SECURE = False  # HTTP에서도 작동
 SESSION_COOKIE_HTTPONLY = False  # JavaScript에서 접근 가능 (디버그용)
 SESSION_COOKIE_SAMESITE = None  # CORS 허용
