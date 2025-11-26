@@ -20,10 +20,15 @@ def load_room_name(request):
     """
     try:
         if request.content_type == "application/json":
-            payload = json.loads(request.body.decode("utf-8") or "{}")
+            body = request.body.decode('utf-8')
+            if not body:
+                return HttpResponseBadRequest("Empty request body")
+            payload = json.loads(body)
             room_name = payload.get("room_name")
         else:
             room_name = request.POST.get("room_name")
+    except json.JSONDecodeError:
+        return HttpResponseBadRequest("Invalid JSON format")
     except Exception:
         return HttpResponseBadRequest("invalid request body")
 

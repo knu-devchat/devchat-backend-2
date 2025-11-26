@@ -1,6 +1,7 @@
 import pyotp
 from .crypto_utils import encrypt_aes_gcm, generate_pseudo_number
-from .models import ChatRoom, UserProfile
+from .models import ChatRoom
+from login.models import UserProfile
 from .room_utils import load_room_name, save_room_secret_key, get_room_secret
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseNotFound, HttpResponseServerError
 from django.views.decorators.http import require_POST, require_GET
@@ -9,42 +10,46 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 import json
 
-
 # Create your views here.
 @csrf_exempt
 @require_POST
-@login_required
 def create_chat_room(request):
     """채팅방 생성해서 room_id 반환"""
-    # 0. 현재 사용자 프로필 가져오기
     try:
-        admin_profile = UserProfile.objects.get(user=request.user)
-    except UserProfile.DoesNotExist:
-        admin_profile = UserProfile.objects.create(user=request.user)
+        # 0. 현재 사용자 프로필 가져오기
+        try:
+            admin_profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            admin_profile = UserProfile.objects.create(user=request.user)
 
-    # 1. 채팅방 이름 전달
-    room_name = load_room_name(request)
-    if hasattr(room_name, "status_code"):
-        return room_name
+        # 1. 채팅방 이름 전달
+        room_name = load_room_name(request)
+        if hasattr(room_name, "status_code"):
+            return room_name
 
-    # 2. 의사 난수 생성
-    secret_key, iv = generate_pseudo_number()
+        # 2. 의사 난수 생성
+        secret_key, iv = generate_pseudo_number()
 
-    # 3. 채팅방 고유 비밀키 암호화
-    encrypted = encrypt_aes_gcm(secret_key, iv)
+        # 3. 채팅방 고유 비밀키 암호화
+        encrypted = encrypt_aes_gcm(secret_key, iv)
 
-    # 4. 채팅방 고유 비밀키 DB에 저장
-    room_or_resp = save_room_secret_key(room_name, encrypted, admin_profile)
-    if hasattr(room_or_resp, "status_code"):
-        return room_or_resp
+        # 4. 채팅방 고유 비밀키 DB에 저장
+        room_or_resp = save_room_secret_key(room_name, encrypted, admin_profile)
+        if hasattr(room_or_resp, "status_code"):
+            return room_or_resp
 
-    # 성공: room_or_resp는 ChatRoom 인스턴스
-    room = room_or_resp
-    return JsonResponse({
-        "room_id": room.room_id,
-        "room_name": room.room_name,
-        "admin": admin_profile.username
-    })
+        # 성공: room_or_resp는 ChatRoom 인스턴스
+        room = room_or_resp
+        return JsonResponse({
+            "room_id": room.room_id,
+            "room_name": room.room_name,
+            "admin": admin_profile.username
+        })
+    
+    except Exception:
+        return JsonResponse({
+            "error": "Failed to create chat room"
+        }, status=500)
 
 
 @require_GET
