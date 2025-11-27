@@ -19,57 +19,6 @@ def check_authentication(request):
         return JsonResponse({"error": "Authentication required"}, status=401)
     return None
 
-@require_GET
-def get_user_rooms(request):
-    """현재 사용자가 참여 중인 채팅방 목록 반환"""
-    try:
-        # 인증 체크
-        auth_error = check_authentication(request)
-        if auth_error:
-            return auth_error
-        
-        # 사용자 프로필 가져오기
-        try:
-            user_profile = UserProfile.objects.get(user=request.user)
-        except UserProfile.DoesNotExist:
-            user_profile = UserProfile.objects.create(user=request.user)
-
-        # 방장인 방들
-        admin_rooms = ChatRoom.objects.filter(admin=user_profile)
-
-        # 참여자인 방들
-        participant_rooms = ChatRoom.objects.filter(participants=user_profile)
-
-        # 모든 방 통합
-        all_rooms = (admin_rooms | participant_rooms).distinct().order_by('-created_at')
-
-        rooms_data = []
-        for room in all_rooms:
-            rooms_data.append({
-                "room_id": room.room_id,
-                "room_uuid": str(room.room_uuid),
-                "room_name": room.room_name,
-                "description": room.description,
-                "is_admin": room.admin == user_profile,
-                "admin_username": room.admin.username,
-                "participant_count": room.participants.count() + 1,  # +1은 방장 포함
-                "created_at": room.created_at.isoformat(),
-                # "last_message": None,  # 나중에 메시지 기능 구현 시 추가
-                # "unread_count": 0,     # 나중에 읽음 상태 기능 구현 시 추가
-            })
-
-        return JsonResponse({
-            "rooms": rooms_data,
-            "total_count": len(rooms_data)
-        })
-        
-    except Exception as e:
-        print(f"[ERROR] get_user_rooms: {e}")
-        return JsonResponse({
-            "error": "Failed to get rooms",
-            "message": "An unexpected error occurred"
-        }, status=500)
-
 @csrf_exempt
 @require_POST
 def create_chat_room(request):
