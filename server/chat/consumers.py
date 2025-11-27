@@ -49,7 +49,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         message = data.get("message")
         if not message:
-            return
+            return  
 
         # 2. 메시지 저장: UserProfile 객체를 sender로 전달
         stored_message = await self._save_message(self.room, self.sender_profile, message)
