@@ -71,21 +71,37 @@ def save_room_secret_key(room_name: str, encrypted: str, admin_profile):
 
 #totp 코드 필요할 때 암호문 가져와서 복호화
 def get_room_secret(room_uuid):
-    """
-    room_uuid로 ChatRoom과 SecureData를 찾고,
-    AES-GCM 복호화 후 TOTP용 base32 문자열 반환.
-    복호화 실패/데이터 없음 → None
-    """
-    try:
-        room = ChatRoom.objects.get(pk=room_uuid)
-        secure_data = room.secure_data
-
-        secret_bytes = decrypt_aes_gcm(secure_data.encrypted_value)
-        # generate_pseudo_number에서 ascii로 만들었으므로 ascii decode
-        secret = secret_bytes.decode("ascii")
-        return secret
+    print(f"[DEBUG] get_room_secret 호출됨 - room_uuid: {room_uuid}")
     
+    try:
+        from .models import ChatRoom, SecureData  # SecureData 모델 사용
+        from .crypto_utils import decrypt_aes_gcm  # 복호화 함수
+        
+        # 1. 먼저 ChatRoom 객체 찾기
+        room = ChatRoom.objects.get(room_uuid=room_uuid)
+        print(f"[DEBUG] ChatRoom 발견: {room.room_name}")
+        
+        # 2. room과 연결된 SecureData 찾기 (OneToOneField)
+        secure_data = SecureData.objects.get(room=room)
+        print(f"[DEBUG] SecureData 발견")
+        
+        # 3. 복호화
+        if secure_data.encrypted_value:
+            decrypted_secret = decrypt_aes_gcm(secure_data.encrypted_value)
+            print(f"[DEBUG] 복호화 성공")
+            return decrypted_secret
+        else:
+            print(f"[DEBUG] encrypted_value가 비어있음")
+            return None
+        
     except ChatRoom.DoesNotExist:
+        print(f"[DEBUG] ChatRoom 없음: {room_uuid}")
+        return None
+    except SecureData.DoesNotExist:
+        print(f"[DEBUG] SecureData 없음 for room: {room_uuid}")
         return None
     except Exception as e:
+        print(f"[DEBUG] get_room_secret 오류: {e}")
+        import traceback
+        traceback.print_exc()
         return None
