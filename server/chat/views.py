@@ -49,6 +49,7 @@ def create_chat_room(request):
 
         response = {
             "room_id": room.room_id,
+            "room_uuid": str(room.room_uuid),
             "room_name": room.room_name,
             "admin": admin_profile.username,
             "status": "success"
@@ -64,15 +65,18 @@ def create_chat_room(request):
 
 @require_GET
 @login_required
-def generate_TOTP(request, room_id):
+def generate_TOTP(request, room_uuid):
     """totp 6자리 숫자 반환 - 방장만 생성 가능"""
     try:
         # 인증 체크
         if not request.user.is_authenticated:
             return JsonResponse({"error": "Authentication required"}, status=401)
 
-        # 1. 채팅방 존재 확인
-        room = get_object_or_404(ChatRoom, room_id=room_id)
+        # 1. UUID로 방 찾기
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_uuid)
+        except ChatRoom.DoesNotExist:
+            return JsonResponse({"error": "Room not found"}, status=404)
 
         # 2. 현재 사용자 프로필 가져오기
         try:
@@ -85,7 +89,7 @@ def generate_TOTP(request, room_id):
             return JsonResponse({"error": "Only room admin can generate TOTP"}, status=403)
 
         # 4. DB에서 채팅방 비밀키 가져와서 복호화
-        secret = get_room_secret(room_id)
+        secret = get_room_secret(room.room_id)
         if secret is None:
             return JsonResponse({"error": "Room secret not found"}, status=404)
         
@@ -97,7 +101,7 @@ def generate_TOTP(request, room_id):
             "totp": code,
             "interval": totp.interval,
             "room_name": room.room_name,
-            "room_id": room.room_id,
+            "room_uuid": room.room_uuid,
         })
         
     except Exception as e:

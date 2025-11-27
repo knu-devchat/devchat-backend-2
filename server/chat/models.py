@@ -1,9 +1,11 @@
+import uuid
 from django.db import models
 from login.models import UserProfile
 
 # Create your models here.
 class ChatRoom(models.Model):
     room_id = models.AutoField(primary_key=True)
+    room_uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     room_name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True)
     participants = models.ManyToManyField(UserProfile, related_name='chatrooms')
