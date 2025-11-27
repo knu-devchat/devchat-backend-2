@@ -10,70 +10,79 @@ def home(request):
 @require_GET
 def current_user(request):
     """현재 로그인된 사용자 정보와 참여 중인 채팅방 목록 반환"""
-    if request.user.is_authenticated:
-        try:
-            profile = UserProfile.objects.get(user=request.user)
-        except UserProfile.DoesNotExist:
-            profile = UserProfile.objects.create(user=request.user)
-
-        # 채팅방 목록 가져오기
-        try:
-            from chat.models import ChatRoom
-            
-            # 방장인 방들
-            admin_rooms = ChatRoom.objects.filter(admin=profile)
-            
-            # 참여자인 방들
-            participant_rooms = ChatRoom.objects.filter(participants=profile)
-            
-            # 모든 방 통합 (중복 제거)
-            all_rooms = (admin_rooms | participant_rooms).distinct().order_by('-created_at')
-            
-            rooms_data = []
-            for room in all_rooms:
-                rooms_data.append({
-                    "room_id": room.room_id,
-                    "room_uuid": str(room.room_uuid),
-                    "room_name": room.room_name,
-                    "description": room.description,
-                    "is_admin": room.admin == profile,
-                    "admin_username": room.admin.username,
-                    "participant_count": room.participants.count() + 1,  # +1은 방장 포함
-                    "created_at": room.created_at.isoformat(),
-                })
-                
-        except Exception as e:
-            print(f"[ERROR] getting rooms in current_user: {e}")
-            rooms_data = []  # 에러 시 빈 배열
-
-        return JsonResponse({
-            # 기본 User 정보
-            'uuid': str(profile.uuid) if hasattr(profile, 'uuid') else None,
-            'username': request.user.username,
-            'email': request.user.email,
-            'is_authenticated': True,
-            
-            # UserProfile 추가 정보
-            'profile_image': profile.profile_image,
-            'is_online': profile.is_online,
-            'last_seen': profile.last_seen,
-            
-            # GitHub 정보
-            'github_username': profile.github_username,
-            'github_id': profile.github_id,
-            'github_bio': profile.github_bio,
-            'github_company': profile.github_company,
-            'github_location': profile.github_location,
-            'github_followers': profile.github_followers,
-            'github_following': profile.github_following,
-            
-            # 채팅방 목록 추가
-            'rooms': rooms_data,
-            'rooms_count': len(rooms_data)
-        })
-    else:
+    print(f"[DEBUG] current_user called - authenticated: {request.user.is_authenticated}")
+    print(f"[DEBUG] user: {request.user}")
+    
+    if not request.user.is_authenticated:
+        print("[DEBUG] User not authenticated")
         return JsonResponse({'is_authenticated': False}, status=401)
     
+    try:
+        profile = UserProfile.objects.get(user=request.user)
+        print(f"[DEBUG] Found profile: {profile}")
+    except UserProfile.DoesNotExist:
+        print(f"[DEBUG] Creating new profile for user: {request.user}")
+        profile = UserProfile.objects.create(user=request.user)
+
+    # 채팅방 목록 가져오기
+    try:
+        from chat.models import ChatRoom
+        
+        # 방장인 방들
+        admin_rooms = ChatRoom.objects.filter(admin=profile)
+        
+        # 참여자인 방들  
+        participant_rooms = ChatRoom.objects.filter(participants=profile)
+        
+        # 모든 방 통합 (중복 제거)
+        all_rooms = (admin_rooms | participant_rooms).distinct().order_by('-created_at')
+        
+        rooms_data = []
+        for room in all_rooms:
+            rooms_data.append({
+                "room_uuid": str(room.pk),  # room_uuid가 primary_key
+                "room_name": room.room_name,
+                "description": room.description,
+                "is_admin": room.admin == profile,
+                "admin_username": room.admin.user.username,  # user.username → user.user.username
+                "participant_count": room.participants.count() + 1,
+                "created_at": room.created_at.isoformat(),
+            })
+            
+    except Exception as e:
+        print(f"[ERROR] getting rooms in current_user: {e}")
+        rooms_data = []
+
+    response_data = {
+        # 기본 User 정보
+        'uuid': str(profile.uuid) if hasattr(profile, 'uuid') else None,
+        'username': request.user.username,
+        'email': request.user.email,
+        'is_authenticated': True,
+        
+        # UserProfile 추가 정보
+        'avatar': profile.profile_image or '',  # avatar 필드 추가!
+        'profile_image': profile.profile_image or '',
+        'is_online': profile.is_online,
+        'last_seen': profile.last_seen.isoformat() if profile.last_seen else None,
+        
+        # GitHub 정보
+        'github_username': profile.github_username or '',
+        'github_id': profile.github_id or '',
+        'github_bio': profile.github_bio or '',
+        'github_company': profile.github_company or '',
+        'github_location': profile.github_location or '',
+        'github_followers': profile.github_followers or 0,
+        'github_following': profile.github_following or 0,
+        
+        # 채팅방 목록
+        'rooms': rooms_data,
+        'rooms_count': len(rooms_data)
+    }
+    
+    print(f"[DEBUG] Returning response: {response_data}")
+    return JsonResponse(response_data)
+
 @require_GET
 def user_profile(request, user_uuid):
     """다른 사용자 프로필 조회 (UUID 사용)"""
