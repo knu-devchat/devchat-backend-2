@@ -2,6 +2,7 @@ import pyotp
 from .crypto_utils import encrypt_aes_gcm, generate_pseudo_number
 from .models import ChatRoom
 from login.models import UserProfile
+from login.auth_check import check_authentication
 from .room_utils import load_room_name, save_room_secret_key, get_room_secret
 from django.http import JsonResponse, HttpResponseBadRequest, HttpResponseNotFound, HttpResponseServerError
 from django.views.decorators.http import require_POST, require_GET
@@ -13,12 +14,6 @@ from django.contrib.auth.models import User
 
 
 # Create your views here.
-def check_authentication(request):
-    """인증 체크 함수"""
-    if not request.user.is_authenticated:
-        return JsonResponse({"error": "Authentication required"}, status=401)
-    return None
-
 @csrf_exempt
 @require_POST
 def create_chat_room(request):
