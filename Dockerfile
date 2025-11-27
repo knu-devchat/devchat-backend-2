@@ -28,14 +28,5 @@ ENV PYTHONUNBUFFERED=1
 # 포트 8000 노출
 EXPOSE 8000
 
-# 정적 파일 수집 및 마이그레이션을 위한 스크립트
-RUN echo '#!/bin/bash\n\
-cd /app/server\n\
-python manage.py collectstatic --noinput\n\
-python manage.py migrate\n\
-python manage.py runserver 0.0.0.0:8000' > /app/start.sh
-
-RUN chmod +x /app/start.sh
-
-# 컨테이너 시작시 실행할 명령
-CMD ["/app/start.sh"]
+# 컨테이너 시작시 실행할 명령 (스크립트 파일 대신 직접 실행)
+CMD ["bash", "-c", "cd /app/server && python manage.py collectstatic --noinput && python manage.py migrate && python manage.py runserver 0.0.0.0:8000"]
