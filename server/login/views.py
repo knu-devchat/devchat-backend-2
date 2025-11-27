@@ -3,13 +3,11 @@ from django.conf import settings
 from django.http import JsonResponse
 from .models import UserProfile
 from django.views.decorators.http import require_POST, require_GET
-from django.contrib.auth.decorators import login_required
 
 def home(request):
     return render(request, 'index.html')
 
 @require_GET
-@login_required
 def current_user(request):
     """현재 로그인된 사용자 정보와 참여 중인 채팅방 목록 반환"""
     if request.user.is_authenticated:
@@ -77,7 +75,6 @@ def current_user(request):
         return JsonResponse({'is_authenticated': False}, status=401)
     
 @require_GET
-@login_required
 def user_profile(request, user_uuid):
     """다른 사용자 프로필 조회 (UUID 사용)"""
     try:
