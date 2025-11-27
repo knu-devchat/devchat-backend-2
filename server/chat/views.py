@@ -109,12 +109,82 @@ def generate_TOTP(request, room_uuid):
 
 @require_POST
 @login_required
-def join_room(request):
+def join_room(request, room_uuid):
     """사용자가 totp 인증을 통해 방에 참여"""
     # req: totp(123456)
     # res: result(success), room_id(12)
     # res: error(nvalid_totp)
-    pass
+    try:
+        # 인증 체크
+        if not request.user.is_authenticated:
+            return JsonResponse({"error": "Authentication required"}, status=401)
+        
+        # 요청 데이터 파싱
+        try:
+            data = json.loads(request.body)
+            totp_code = data.get('totp')
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON format"}, status=400)
+        
+        if not totp_code:
+            return JsonResponse({"error": "TOTP code is required"}, status=400)
+        
+        # TOTP 6자리인지 검증
+        if not (totp_code.isdigit() and len(totp_code)==6):
+            return JsonResponse({"error": "Invalid TOTP format. Must be 6 digits."}, status=400)
+        
+        # 1. UUID로 방 찾기
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_uuid)
+        except ChatRoom.DoesNotExist:
+            return JsonResponse({"error": "Room not found"}, status=404)
+        
+        # 2. 현재 사용자 프로필 가져오기
+        try:
+            user_profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            user_profile = UserProfile.objects.create(user=request.user)
+
+        # 3. 이미 참여 중인지 확인
+        if user_profile in room.participants.all() or room.admin == user_profile:
+            return JsonResponse({
+                "result": "already_joined",
+                "message": "You are already a participant in this room",
+                "room_uuid": str(room.room_uuid),
+                "room_name": room.room_name
+            })
+        
+        # 4. TOTP 코드 검증
+        secret = get_room_secret(room.room_id)
+        if secret is None:
+            return JsonResponse({"error": "Room secret not found"}, status=404)
+        
+        totp = pyotp.TOTP(secret)
+        # valid_window=1: 현재 시간 +-30초 범위에서 검증
+        if not totp.verify(totp_code, valid_window=1):
+            return JsonResponse({
+                "error": "invalid_totp",
+                "message": "Invalid or expired TOTP code"
+            }, status=400)
+        
+        # 5. 방에 참여 추가
+        room.participants.add(user_profile)
+
+        return JsonResponse({
+            "result": "success",
+            "message": "Successfully joined the room",
+            "room_uuid": str(room.room_uuid),
+            "room_name": room.room_name,
+            "participant_count": room.participants.count(),
+            "admin": room.admin.username
+        })
+    
+    except Exception as e:
+        print(f"[ERROR] join_room: {e}")
+        return JsonResponse({
+            "error": "Failed to join room",
+            "message": "An unexpected error occurred"
+        }, status=500)
 
 @require_GET
 @login_required
