@@ -15,50 +15,51 @@ def handle_pre_social_login(sender, request, sociallogin, **kwargs):
     
     if sociallogin.account.provider == 'github':
         user_data = sociallogin.account.extra_data
-        user = sociallogin.user
+        github_id = str(user_data.get('id'))
+        github_username = user_data.get('login')
+
+        # 기존에 같은 Github ID로 연결된 UserProfile 찾기
+        try:
+            existing_profile = UserProfile.objects.get(github_id=github_id)
+            existing_user = existing_profile.user
+
+            # 기존 사용자로 로그인 처리
+            sociallogin.user = existing_user
+            return
         
-        print(f"[DEBUG] GitHub data: {user_data}")
-        print(f"[DEBUG] Current user: {user}")
-        print(f"[DEBUG] Current username: {user.username}")
+        except UserProfile.DoesNotExist:
+            print(f"[DEBUG] 새로운 Github 계정")
         
-        # Username 중복 체크 및 해결
-        github_username = user_data.get('login', f'github_user_{user_data.get("id")}')
-        
+        # 새로운 계정인 경우 username 중복 체크
         if github_username:
             original_username = github_username
             username = github_username
             counter = 1
             
-            print(f"[DEBUG] Checking username: {username}")
-            
-            # 중복되는 동안 숫자 추가
             while User.objects.filter(username=username).exists():
-                print(f"[DEBUG] Username {username} exists, trying next...")
                 username = f"{original_username}_{counter}"
                 counter += 1
-            
-            print(f"[DEBUG] Final username: {username}")
-            user.username = username
+
+            sociallogin.user.username = username
+            print(f"[DEBUG] Checking username: {username}")
         
         # 이메일 설정
-        if not user.email:
+        if not sociallogin.user.email:
             email = user_data.get('email')
             if email:
-                user.email = email
-                print(f"[DEBUG] Set email: {email}")
+                sociallogin.user.email = email
             else:
                 temp_email = f"{username}@github.temp"
-                user.email = temp_email
-                print(f"[DEBUG] Set temp email: {temp_email}")
+                sociallogin.user.email = temp_email
         
         # User 모델의 기본 필드만 설정
         name = user_data.get('name', '')
         if name:
             name_parts = name.split(' ', 1)
-            user.first_name = name_parts[0]
+            sociallogin.user.first_name = name_parts[0]
             if len(name_parts) > 1:
-                user.last_name = name_parts[1]
-            print(f"[DEBUG] Set name: {user.first_name} {user.last_name}")
+                sociallogin.user.last_name = name_parts[1]
+            print(f"[DEBUG] Set name: {sociallogin.user.first_name} {sociallogin.user.last_name}")
 
 @receiver(social_account_added)
 def handle_social_account_added(sender, request, sociallogin, **kwargs):

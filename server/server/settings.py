@@ -102,7 +102,13 @@ SOCIALACCOUNT_PROVIDERS = {
             'client_id': os.environ.get('CLIENT_ID'),
             'secret': os.environ.get('CLIENT_SECRET'),
             'key': ''
-        }
+        },
+        'SCOPE': [
+            'user:email',
+            'read:user',
+        ],
+        'VERIFIED_EMAIL': True,
+        'EMAIL_AUTHENTICATION': True,
     }
 }
 
@@ -110,9 +116,11 @@ SOCIALACCOUNT_PROVIDERS = {
 # When True, allauth will hide local signup/login forms and only allow
 # social provider based authentication (e.g. GitHub).
 SOCIALACCOUNT_ONLY = True
+SOCIALACCOUNT_AUTO_SIGNUP = True
 # Ensure email verification behavior is compatible with SOCIALACCOUNT_ONLY
 # (required by allauth checks). Use 'none' to skip local email verification.
 SOCIALACCOUNT_EMAIL_VERIFICATION = 'none'
+SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 # django-allauth 설정
 ACCOUNT_SIGNUP_FIELDS = ['email', 'username*', 'password1*', 'password2*']
 ACCOUNT_EMAIL_VERIFICATION = 'none'
