@@ -68,60 +68,37 @@ def create_chat_room(request):
 @login_required
 def generate_TOTP(request, room_uuid):
     """totp 6자리 숫자 반환 - 방장만 생성 가능"""
-    print(f"[DEBUG] generate_TOTP 함수 호출됨!")
-    print(f"[DEBUG] room_uuid: {room_uuid}")
-    print(f"[DEBUG] request.user: {request.user}")
-    print(f"[DEBUG] request.method: {request.method}")
-    
     try:
         # 인증 체크
         auth_error = check_authentication(request)
         if auth_error:
-            print(f"[DEBUG] 인증 실패: {auth_error}")
             return auth_error
-        
-        print(f"[DEBUG] 인증 성공")
         
         # 1. UUID로 방 찾기
         try:
             room = ChatRoom.objects.get(room_uuid=room_uuid)
-            print(f"[DEBUG] 방 찾음: {room.room_name}")
         except ChatRoom.DoesNotExist:
-            print(f"[DEBUG] 방 없음: {room_uuid}")
             return JsonResponse({"error": "Room not found"}, status=404)
 
         # 2. 현재 사용자 프로필 가져오기
         try:
             user_profile = UserProfile.objects.get(user=request.user)
-            print(f"[DEBUG] 사용자 프로필 찾음: {user_profile}")
         except UserProfile.DoesNotExist:
-            print(f"[DEBUG] 사용자 프로필 없음")
             return JsonResponse({"error": "User profile not found"}, status=400)
         
         # 3. 권한 확인: 방장만 TOTP 생성 가능
-        print(f"[DEBUG] 방 관리자: {room.admin}")
-        print(f"[DEBUG] 현재 사용자: {user_profile}")
-        print(f"[DEBUG] 권한 체크: {room.admin == user_profile}")
-        
         if room.admin != user_profile:
-            print(f"[DEBUG] 권한 없음 - 방장만 TOTP 생성 가능")
             return JsonResponse({"error": "Only room admin can generate TOTP"}, status=403)
-
-        print(f"[DEBUG] 권한 확인 완료")
 
         # 4. DB에서 채팅방 비밀키 가져와서 복호화
         secret = get_room_secret(room.room_uuid)
-        print(f"[DEBUG] Room secret: {secret is not None}")
         
         if secret is None:
-            print(f"[DEBUG] Room secret 없음")
             return JsonResponse({"error": "Room secret not found"}, status=404)
         
         # 5. 복호화된 비밀키로 TOTP 생성
         totp = pyotp.TOTP(secret)
         code = totp.now()
-        
-        print(f"[DEBUG] TOTP 생성 완료: {code}")
         
         return JsonResponse({
             "totp": code,
@@ -131,9 +108,6 @@ def generate_TOTP(request, room_uuid):
         })
         
     except Exception as e:
-        print(f"[ERROR] generate_TOTP 오류: {e}")
-        import traceback
-        traceback.print_exc()
         return JsonResponse({"error": "Failed to generate TOTP"}, status=500)
     
 @require_POST

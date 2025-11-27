@@ -10,9 +10,6 @@ from django.db.models.signals import post_save
 @receiver(pre_social_login)
 def handle_pre_social_login(sender, request, sociallogin, **kwargs):
     """GitHub 로그인 전 처리 - username 중복 해결"""
-    print(f"[DEBUG] === PRE_SOCIAL_LOGIN TRIGGERED ===")
-    print(f"[DEBUG] Provider: {sociallogin.account.provider}")
-    
     if sociallogin.account.provider == 'github':
         user_data = sociallogin.account.extra_data
         github_id = str(user_data.get('id'))
@@ -41,7 +38,6 @@ def handle_pre_social_login(sender, request, sociallogin, **kwargs):
                 counter += 1
 
             sociallogin.user.username = username
-            print(f"[DEBUG] Checking username: {username}")
         
         # 이메일 설정
         if not sociallogin.user.email:
@@ -59,19 +55,13 @@ def handle_pre_social_login(sender, request, sociallogin, **kwargs):
             sociallogin.user.first_name = name_parts[0]
             if len(name_parts) > 1:
                 sociallogin.user.last_name = name_parts[1]
-            print(f"[DEBUG] Set name: {sociallogin.user.first_name} {sociallogin.user.last_name}")
 
 @receiver(social_account_added)
 def handle_social_account_added(sender, request, sociallogin, **kwargs):
     """소셜 계정 추가 후 UserProfile에 GitHub 정보 저장"""
-    print(f"[DEBUG] === SOCIAL_ACCOUNT_ADDED TRIGGERED ===")
-    print(f"[DEBUG] Provider: {sociallogin.account.provider}")
-    
     if sociallogin.account.provider == 'github':
         user = sociallogin.user
         user_data = sociallogin.account.extra_data
-        
-        print(f"[DEBUG] Creating/updating UserProfile for: {user.username}")
         
         # UserProfile에만 GitHub 정보 저장 (User 모델이 아님!)
         try:
@@ -89,8 +79,6 @@ def handle_social_account_added(sender, request, sociallogin, **kwargs):
                 }
             )
             
-            print(f"[DEBUG] UserProfile {'created' if created else 'updated'}: {profile}")
-            
             # 이미 존재하는 프로필이라면 업데이트
             if not created:
                 profile.github_username = user_data.get('login', '')
@@ -102,21 +90,18 @@ def handle_social_account_added(sender, request, sociallogin, **kwargs):
                 profile.github_followers = user_data.get('followers', 0)
                 profile.github_following = user_data.get('following', 0)
                 profile.save()
-                print(f"[DEBUG] Profile updated with GitHub data")
         
         except Exception as e:
             print(f"[ERROR] Failed to create/update UserProfile: {e}")
         
         # GitHub 친구 정보 가져오기 (안전하게 처리)
         try:
-            print(f"[DEBUG] Fetching GitHub friends...")
             fetch_github_friends_async(user, sociallogin.account)
         except Exception as e:
             print(f"[ERROR] GitHub 친구 정보 가져오기 실패: {e}")
 
 def fetch_github_friends_async(user, social_account):
     """GitHub 친구 정보를 가져와서 저장"""
-    print(f"[DEBUG] === FETCHING GITHUB FRIENDS ===")
     try:
         # SocialToken을 올바르게 가져오기
         social_token = SocialToken.objects.filter(
@@ -125,11 +110,9 @@ def fetch_github_friends_async(user, social_account):
         ).first()
         
         if not social_token:
-            print(f"[DEBUG] GitHub 토큰을 찾을 수 없습니다. User: {user.username}")
             return
             
         access_token = social_token.token
-        print(f"[DEBUG] Found access token")
         
         # GitHub API 호출
         fetch_followers(user, access_token)
@@ -147,12 +130,10 @@ def fetch_followers(user, access_token):
         }
         url = 'https://api.github.com/user/followers'
         
-        print(f"[DEBUG] Fetching followers from: {url}")
         response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             followers = response.json()
-            print(f"[DEBUG] Found {len(followers)} followers")
             
             for follower in followers:
                 GithubFriend.objects.get_or_create(
@@ -179,12 +160,10 @@ def fetch_following(user, access_token):
         }
         url = 'https://api.github.com/user/following'
         
-        print(f"[DEBUG] Fetching following from: {url}")
         response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             following = response.json()
-            print(f"[DEBUG] Found {len(following)} following")
             
             for follow in following:
                 friend, created = GithubFriend.objects.get_or_create(
@@ -211,8 +190,6 @@ def fetch_following(user, access_token):
 def handle_user_post_save(sender, instance, created, **kwargs):
     """User 생성 후 UserProfile에 GitHub 정보 추가"""
     if created:
-        print(f"[DEBUG] === USER POST_SAVE TRIGGERED for {instance.username} ===")
-        
         # GitHub Social Account가 있는지 확인
         try:
             from allauth.socialaccount.models import SocialAccount
@@ -237,7 +214,6 @@ def handle_user_post_save(sender, instance, created, **kwargs):
                     profile.github_followers = user_data.get('followers', 0)
                     profile.github_following = user_data.get('following', 0)
                     profile.save()
-                    print(f"[DEBUG] UserProfile updated with GitHub data")
                 except UserProfile.DoesNotExist:
                     print(f"[DEBUG] UserProfile not found for {instance.username}")
             else:
