@@ -10,18 +10,12 @@ def home(request):
 @require_GET
 def current_user(request):
     """현재 로그인된 사용자 정보와 참여 중인 채팅방 목록 반환"""
-    print(f"[DEBUG] current_user called - authenticated: {request.user.is_authenticated}")
-    print(f"[DEBUG] user: {request.user}")
-    
     if not request.user.is_authenticated:
-        print("[DEBUG] User not authenticated")
         return JsonResponse({'is_authenticated': False}, status=401)
     
     try:
         profile = UserProfile.objects.get(user=request.user)
-        print(f"[DEBUG] Found profile: {profile}")
     except UserProfile.DoesNotExist:
-        print(f"[DEBUG] Creating new profile for user: {request.user}")
         profile = UserProfile.objects.create(user=request.user)
 
     # 채팅방 목록 가져오기
@@ -80,7 +74,6 @@ def current_user(request):
         'rooms_count': len(rooms_data)
     }
     
-    print(f"[DEBUG] Returning response: {response_data}")
     return JsonResponse(response_data)
 
 @require_GET
