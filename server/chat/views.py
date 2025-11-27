@@ -65,36 +65,43 @@ def create_chat_room(request):
 @require_GET
 @login_required
 def generate_TOTP(request, room_id):
-    """totp 6자리 숫자 반환"""
-
-    # 1. 채팅방 존재 확인
-    room = get_object_or_404(ChatRoom, room_id=room_id)
-
-    # 2. 현재 사용자 프로필 가져오기
+    """totp 6자리 숫자 반환 - 방장만 생성 가능"""
     try:
-        user_profile = UserProfile.objects.get(user=request.user)
-    except UserProfile.DoesNotExist:
-        return HttpResponseBadRequest("User profile not found")
-    
-    # 3. 권한 확인: 방장이거나 참여자여야 함
-    if room.admin != user_profile and user_profile not in room.participants.all():
-        return JsonResponse({"error": "You are not authorized to access this room"}, status=403)
+        # 인증 체크
+        if not request.user.is_authenticated:
+            return JsonResponse({"error": "Authentication required"}, status=401)
 
-    # 4. DB에서 채팅방 비밀키 가져와서 복호화
-    secret = get_room_secret(room_id)
-    if secret is None:
-        return HttpResponseNotFound("secret not found")
-    
-    # 5. 복호화된 비밀키로 TOTP 생성
-    totp = pyotp.TOTP(secret)
-    code = totp.now()
+        # 1. 채팅방 존재 확인
+        room = get_object_or_404(ChatRoom, room_id=room_id)
 
-    return JsonResponse({
-        "totp": code,
-        "interval": totp.interval,
-        "room_name": room.room_name,
-        "room_id": room.room_id
-    })
+        # 2. 현재 사용자 프로필 가져오기
+        try:
+            user_profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return JsonResponse({"error": "User profile not found"}, status=400)
+        
+        # 3. 권한 확인: 방장만 TOTP 생성 가능
+        if room.admin != user_profile:
+            return JsonResponse({"error": "Only room admin can generate TOTP"}, status=403)
+
+        # 4. DB에서 채팅방 비밀키 가져와서 복호화
+        secret = get_room_secret(room_id)
+        if secret is None:
+            return JsonResponse({"error": "Room secret not found"}, status=404)
+        
+        # 5. 복호화된 비밀키로 TOTP 생성
+        totp = pyotp.TOTP(secret)
+        code = totp.now()
+        
+        return JsonResponse({
+            "totp": code,
+            "interval": totp.interval,
+            "room_name": room.room_name,
+            "room_id": room.room_id,
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": "Failed to generate TOTP"}, status=500)
 
 @require_POST
 @login_required
