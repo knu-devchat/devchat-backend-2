@@ -48,51 +48,44 @@ def save_room_secret_key(room_name: str, encrypted: str, admin_profile):
     """
     try:
         with transaction.atomic():
+            if ChatRoom.objects.filter(room_name=room_name).exists():
+                return JsonResponse({"error": "Room name already exists"}, status=400)
+            
             room = ChatRoom.objects.create(
                 room_name=room_name,
                 admin=admin_profile
             )
             room.participants.add(admin_profile)
 
-            secure = SecureData.objects.create(
+            SecureData.objects.create(
                 room=room,
                 encrypted_value=encrypted,  # base64(iv + ciphertext)
             )
-            # 디버그용 로그 (원하면 삭제해도 됨)
-            print(f"[DEBUG] Created ChatRoom(room_id={room.room_id}) "
-                  f"and SecureData(id={secure.id})")
     except IntegrityError:
         return HttpResponseBadRequest("room_name already exists")
     except Exception as e:
-        print("[ERROR] save_room_secret_key:", e)
         return HttpResponseServerError("failed to save room and secret")
 
     return room
 
 
 #totp 코드 필요할 때 암호문 가져와서 복호화
-def get_room_secret(room_id):
+def get_room_secret(room_uuid):
     """
-    room_id로 ChatRoom과 SecureData를 찾고,
+    room_uuid로 ChatRoom과 SecureData를 찾고,
     AES-GCM 복호화 후 TOTP용 base32 문자열 반환.
     복호화 실패/데이터 없음 → None
     """
-    room = get_object_or_404(ChatRoom, room_id=room_id)
-    secure = (
-        SecureData.objects
-        .filter(room=room)
-        .order_by("-created_at")
-        .first()
-    )
-    if not secure:
-        print(f"[DEBUG] No SecureData for room_id={room_id}")
-        return None
-
     try:
-        secret_bytes = decrypt_aes_gcm(secure.encrypted_value)
+        room = ChatRoom.objects.get(pk=room_uuid)
+        secure_data = room.secure_data
+
+        secret_bytes = decrypt_aes_gcm(secure_data.encrypted_value)
         # generate_pseudo_number에서 ascii로 만들었으므로 ascii decode
         secret = secret_bytes.decode("ascii")
         return secret
+    
+    except ChatRoom.DoesNotExist:
+        return None
     except Exception as e:
-        print("[ERROR] get_room_secret:", e)
         return None

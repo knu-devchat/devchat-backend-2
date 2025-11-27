@@ -49,7 +49,6 @@ def create_chat_room(request):
         room = room_or_resp
 
         response = {
-            "room_id": room.room_id,
             "room_uuid": str(room.room_uuid),
             "room_name": room.room_name,
             "admin": admin_profile.username,
@@ -91,7 +90,7 @@ def generate_TOTP(request, room_uuid):
             return JsonResponse({"error": "Only room admin can generate TOTP"}, status=403)
 
         # 4. DB에서 채팅방 비밀키 가져와서 복호화
-        secret = get_room_secret(room.room_id)
+        secret = get_room_secret(room.room_uuid)
         if secret is None:
             return JsonResponse({"error": "Room secret not found"}, status=404)
         
@@ -158,7 +157,7 @@ def join_room(request, room_uuid):
             })
         
         # 4. TOTP 코드 검증
-        secret = get_room_secret(room.room_id)
+        secret = get_room_secret(room.room_uuid)
         if secret is None:
             return JsonResponse({"error": "Room secret not found"}, status=404)
         

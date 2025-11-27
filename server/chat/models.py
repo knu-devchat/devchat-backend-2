@@ -4,23 +4,11 @@ from login.models import UserProfile
 
 # Create your models here.
 class ChatRoom(models.Model):
-    room_id = models.AutoField(primary_key=True)
-    room_uuid = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    room_uuid = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     room_name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True)
-    participants = models.ManyToManyField(UserProfile, related_name='chatrooms')
     admin = models.ForeignKey(UserProfile, on_delete=models.CASCADE, related_name='admin_chatrooms')
-
-    # 채팅방 타입
-    ROOM_TYPES = [
-        ('public', 'Public'),
-        ('private', 'Private'),
-        ('direct', 'Direct Message'),
-        ('github_repo', 'GitHub Repository'),
-    ]
-    room_type = models.CharField(max_length=20, choices=ROOM_TYPES, default='public')
-    is_active = models.BooleanField(default=True)
-    max_participants = models.IntegerField(default=100)
+    participants = models.ManyToManyField(UserProfile, related_name='chatrooms')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
         
@@ -28,7 +16,7 @@ class ChatRoom(models.Model):
         ordering = ['-updated_at']
     
     def __str__(self):
-        return self.room_name
+        return f"{self.room_name} ({self.room_uuid})"
     
 class UserChatRoomActivity(models.Model):
     """사용자의 채팅방별 활동 정보"""
@@ -48,14 +36,15 @@ class UserChatRoomActivity(models.Model):
         unique_together = ['user', 'chatroom']
     
     def __str__(self):
-        return f"{self.user.username} in {self.chatroom.room_name}"
+        return f"{self.user.user.username} in {self.chatroom.room_name}"
 
 
 class SecureData(models.Model):
-    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE)
+    room = models.OneToOneField(ChatRoom, on_delete=models.CASCADE)
     encrypted_value = models.TextField()  # base64 암호문 저장
     created_at = models.DateTimeField(auto_now_add=True)
-
+    def __str__(self):
+        return f"SecureData for {self.room.room_name}"
 
 class Message(models.Model):
     MESSAGE_TYPES = [
@@ -65,7 +54,7 @@ class Message(models.Model):
         ('system', 'System'),
     ]
 
-    chatroom = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="messages")
+    room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="messages")
     sender = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
     content = models.TextField()
     message_type = models.CharField(max_length=10, choices=MESSAGE_TYPES, default='text')
@@ -77,4 +66,4 @@ class Message(models.Model):
         ordering = ["created_at"]
 
     def __str__(self):
-        return f"{self.sender.username or 'Anonymous'}: {self.content[:20]}"
+        return f"{self.sender.user.username or 'Anonymous'}: {self.content[:20]}"
