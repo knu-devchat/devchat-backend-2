@@ -1,69 +1,29 @@
-services:
-  # Redis 서비스 (Channels와 세션 저장용)
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+# docker-compose.yml
+version: '3.8'
 
-  # Django 웹 애플리케이션
+services:
   web:
     build: .
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
-      - db_volume:/app/server/db
-      - static_volume:/app/server/staticfiles
-      - media_volume:/app/server/media
     environment:
-      # 환경변수들 (.env 파일에서 가져옴)
-      - DJANGO_SECRET_KEY=${DJANGO_SECRET_KEY}
-      - CLIENT_ID=${CLIENT_ID}
-      - CLIENT_SECRET=${CLIENT_SECRET}
-      - MASTER_KEY_B64=${MASTER_KEY_B64}
-      - DEBUG=${DEBUG:-True}
-      - ALLOWED_HOSTS=localhost,127.0.0.1,web,${ALLOWED_HOSTS:-}
-      - CORS_ALLOW_ALL_ORIGINS=${CORS_ALLOW_ALL_ORIGINS:-True}
-      - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS}
-      - CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://web:8000,${CSRF_TRUSTED_ORIGINS:-}
-      # Redis 연결 설정 (Channels용)
-      - REDIS_URL=redis://redis:6379/0
-    depends_on:
-      redis:
-        condition: service_healthy
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/admin/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
-
-  # Nginx 프록시 (선택사항)
-  nginx:
-    image: nginx:alpine
-    ports:
-      - "80:80"
+      - DEBUG=True
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - MASTER_KEY_B64=${MASTER_KEY_B64:-}
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - static_volume:/app/server/staticfiles
-      - media_volume:/app/server/media
+      - sqlite_data:/app/server
     depends_on:
-      - web
-    restart: unless-stopped
-    profiles:
-      - production
+      - db-init
+
+  db-init:
+    build: .
+    command: python manage.py migrate
+    volumes:
+      - sqlite_data:/app/server
+    environment:
+      - DJANGO_SETTINGS_MODULE=server.settings
+      - MASTER_KEY_B64=${MASTER_KEY_B64:-}
 
 volumes:
-  redis_data:
-  db_volume:
-  static_volume:
-  media_volume:
+  sqlite_data:
