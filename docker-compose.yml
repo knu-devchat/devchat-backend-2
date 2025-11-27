@@ -1,29 +1,33 @@
-# docker-compose.yml
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
   web:
     build: .
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - DEBUG=True
-      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
-      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
-      - MASTER_KEY_B64=${MASTER_KEY_B64:-}
+      - CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173
+      - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
     volumes:
       - sqlite_data:/app/server
     depends_on:
-      - db-init
-
-  db-init:
-    build: .
-    command: python manage.py migrate
-    volumes:
-      - sqlite_data:/app/server
-    environment:
-      - DJANGO_SETTINGS_MODULE=server.settings
-      - MASTER_KEY_B64=${MASTER_KEY_B64:-}
+      - redis
+    command: >
+      sh -c "cd /app/server &&
+             python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
 
 volumes:
   sqlite_data:
+  redis_data:
