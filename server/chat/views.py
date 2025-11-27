@@ -13,13 +13,20 @@ from django.contrib.auth.models import User
 
 
 # Create your views here.
+def check_authentication(request):
+    """인증 체크 함수"""
+    if not request.user.is_authenticated:
+        return JsonResponse({"error": "Authentication required"}, status=401)
+    return None
+
 @require_GET
 def get_user_rooms(request):
     """현재 사용자가 참여 중인 채팅방 목록 반환"""
     try:
         # 인증 체크
-        if not request.user.is_authenticated:
-            return JsonResponse({"error": "Authentication required"}, status=401)
+        auth_error = check_authentication(request)
+        if auth_error:
+            return auth_error
         
         # 사용자 프로필 가져오기
         try:
@@ -119,9 +126,10 @@ def generate_TOTP(request, room_uuid):
     """totp 6자리 숫자 반환 - 방장만 생성 가능"""
     try:
         # 인증 체크
-        if not request.user.is_authenticated:
-            return JsonResponse({"error": "Authentication required"}, status=401)
-
+        auth_error =check_authentication(request)
+        if auth_error:
+            return auth_error
+        
         # 1. UUID로 방 찾기
         try:
             room = ChatRoom.objects.get(room_uuid=room_uuid)
@@ -166,8 +174,9 @@ def join_room(request, room_uuid):
     # res: error(nvalid_totp)
     try:
         # 인증 체크
-        if not request.user.is_authenticated:
-            return JsonResponse({"error": "Authentication required"}, status=401)
+        auth_error = check_authentication(request)
+        if auth_error:
+            return auth_error
         
         # 요청 데이터 파싱
         try:
