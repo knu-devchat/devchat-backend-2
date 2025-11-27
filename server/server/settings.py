@@ -74,7 +74,7 @@ INSTALLED_APPS = [
     # local apps
     'login',
     'chat',
-    'llm'
+    'llm',
     
     # allauth 관련 (github oauth 설정에 필요)
     'django.contrib.sites',
@@ -106,6 +106,9 @@ SOCIALACCOUNT_PROVIDERS = {
         }
     }
 }
+
+# OPENAI API 키 설정
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 
 # Make the site social-account-only: disable local signup/login flows
 # When True, allauth will hide local signup/login forms and only allow
