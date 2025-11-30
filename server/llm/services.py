@@ -6,17 +6,14 @@ import asyncio
 client = AsyncOpenAI(api_key=settings.OPENAI_API_KEY) 
 
 
-async def get_ai_response(prompt: str) -> str:
+async def get_ai_response(full_message_history) -> str:
     """사용자의 프롬프트를 받아 OpenAI API를 비동기적으로 호출하고 텍스트 응답을 반환합니다."""
     
     try:
         #API 호출
         response = await client.chat.completions.create(
             model="gpt-3.5-turbo", # 원하는 모델 지정
-            messages=[
-                {"role": "system", "content": "당신은 채팅방에 참여한 친절하고 유용한 AI 어시스턴트입니다. 항상 한국어로 대답해주세요."},
-                {"role": "user", "content": prompt}
-            ],
+            messages= full_message_history,
             temperature=0.7,
             # 네트워크 타임아웃을 설정하여 Channels 서버가 너무 오래 대기하지 않도록 방지
             timeout=15.0

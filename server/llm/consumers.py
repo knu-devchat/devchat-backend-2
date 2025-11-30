@@ -71,7 +71,14 @@ class AiChatConsumer(AsyncWebsocketConsumer):
         
         # AI 호출 
         prompt = message # 사용자의 메시지 전체를 프롬프트로 사용
-        await self.process_ai_request(prompt) 
+        recent_history = await self._get_recent_messages_from_db(self.room, limit=10)
+
+        # AI 페르소나 설정 및 전체 대화 기록 구성
+        ai_persona = {"role": "system", "content": "채팅방에 참여한 친절한 AI 어시스턴트입니다. 항상 대답은 한국어로 하세요"}
+        full_history = [ai_persona] + recent_history + [{"role": "user", "content": prompt}]
+
+        # llm 서비스 호출 시 전체 기록 전달
+        await self.process_ai_request(full_history)
 
 
     async def process_ai_request(self, prompt: str):
@@ -123,3 +130,30 @@ class AiChatConsumer(AsyncWebsocketConsumer):
                 "created_at": message_obj.created_at.isoformat(),
             },
         )
+
+    @database_sync_to_async
+    def _get_recent_messages_from_db(self, room: ChatRoom, limit: int = 10):
+            """DB에서 최근 메시지를 가져옵니다."""
+            messages = list(
+                Message.objects.filter(chatroom=room).select_related('sender__user').order_by('-created_at')[:limit] #최신순 10개
+            )
+
+            messages.reverse()  #오래된 순으로 정렬
+
+            formatted_history = []
+
+            # ai 메시지 구분
+            ai_username = self.ai_profile.user.username
+            for msg in messages:
+            # UserProfile을 거쳐 User 모델의 username을 사용합니다.
+                username = msg.sender.user.username
+        
+            # 역할 구분
+                role = "assistant" if username == ai_username else "user"
+        
+                formatted_history.append({
+                    "role": role, 
+                    "content": msg.content
+        })
+
+            return formatted_history
