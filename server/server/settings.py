@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     # local apps
     'login',
     'chat',
+    'llm',
     
     # allauth 관련 (github oauth 설정에 필요)
     'django.contrib.sites',
@@ -261,3 +262,6 @@ if DEBUG:
             },
         },
     }
+
+# OpenAI API 설정
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', None)
