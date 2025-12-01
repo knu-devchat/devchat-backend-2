@@ -47,20 +47,11 @@ class SecureData(models.Model):
         return f"SecureData for {self.room.room_name}"
 
 class Message(models.Model):
-    MESSAGE_TYPES = [
-        ('text', 'Text'),
-        ('image', 'Image'),
-        ('file', 'File'),
-        ('system', 'System'),
-    ]
-
+    id = models.AutoField(primary_key=True)
     room = models.ForeignKey(ChatRoom, on_delete=models.CASCADE, related_name="messages")
     sender = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
     content = models.TextField()
-    message_type = models.CharField(max_length=10, choices=MESSAGE_TYPES, default='text')
     created_at = models.DateTimeField(auto_now_add=True)
-    is_edited = models.BooleanField(default=False)
-    reply_to = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL)
 
     class Meta:
         ordering = ["created_at"]
