@@ -115,7 +115,11 @@ def create_chat_room(request):
 @require_POST
 @login_required
 def delete_room(request):
-    """채팅방 삭제 - 방장만 가능, 모든 관련 데이터 삭제"""
+    """
+    방 나가기 함수
+    - 방장이 나가면: 방 완전 삭제 (DB에서 제거)  
+    - 참가자가 나가면: 해당 사용자만 참가자 목록에서 제거
+    """
     try:
         print(f"[DEBUG] leave_room 시작 - User: {request.user.username}")
         
@@ -128,7 +132,7 @@ def delete_room(request):
         try:
             data = json.loads(request.body)
             room_uuid = data.get('room_uuid')
-            print(f"[DEBUG] 삭제할 방 UUID: {room_uuid}")
+            print(f"[DEBUG] 나가기 요청 방 UUID: {room_uuid}")
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON format"}, status=400)
         
@@ -144,99 +148,172 @@ def delete_room(request):
         # 채팅방 존재 확인
         try:
             room = ChatRoom.objects.get(room_uuid=room_uuid)
-            print(f"[DEBUG] 삭제할 방: {room.room_name}")
+            print(f"[DEBUG] 대상 방: {room.room_name}")
         except ChatRoom.DoesNotExist:
             return JsonResponse({"error": "Room not found"}, status=404)
         
-        # 방장 권한 확인 (방장만 방을 삭제할 수 있음)
-        if room.admin != user_profile:
+        # 사용자가 방에 속해있는지 확인
+        is_admin = (room.admin == user_profile)
+        is_participant = user_profile in room.participants.all()
+        
+        if not (is_admin or is_participant):
             return JsonResponse({
-                "error": "Permission denied", 
-                "message": "Only room admin can delete the room"
+                "error": "Access denied", 
+                "message": "You are not a member of this room"
             }, status=403)
         
-        # 삭제 전 정보 저장
-        room_name = room.room_name
-        participant_count = room.participants.count()
+        # === 케이스 1: 방장이 나가는 경우 - 방 완전 삭제 ===
+        if is_admin:
+            print(f"[DEBUG] 방장이 나가기 - 방 완전 삭제 시작")
+            
+            # 삭제 전 정보 저장
+            room_name = room.room_name
+            participant_count = room.participants.count()
+            
+            print(f"[DEBUG] 삭제할 방 정보 - 이름: {room_name}, 참가자: {participant_count}명")
+            
+            # 1. SecureData 삭제 (채팅방 시크릿 키)
+            try:
+                from .models import SecureData
+                secure_data = SecureData.objects.filter(room=room)
+                secure_data_count = secure_data.count()
+                secure_data.delete()
+                print(f"[DEBUG] SecureData 삭제 완료: {secure_data_count}개")
+            except Exception as e:
+                print(f"[WARNING] SecureData 삭제 중 오류: {e}")
+            
+            # 2. Redis에서 관련 TOTP 캐시 삭제 (가능한 경우)
+            try:
+                # 현재 활성화된 TOTP가 있다면 삭제
+                secret = get_room_secret(room.room_uuid)
+                if secret:
+                    totp = pyotp.TOTP(secret)
+                    current_totp = totp.now()
+                    redis_key = f"totp:{current_totp}"
+                    redis_client.delete(redis_key)
+                    print(f"[DEBUG] Redis TOTP 캐시 삭제: {redis_key}")
+            except Exception as e:
+                print(f"[WARNING] Redis 캐시 삭제 중 오류: {e}")
+            
+            # 3. 참가자 관계 해제 (ManyToMany 관계)
+            try:
+                room.participants.clear()
+                print(f"[DEBUG] 참가자 관계 해제 완료")
+            except Exception as e:
+                print(f"[WARNING] 참가자 관계 해제 중 오류: {e}")
+            
+            # 4. 메시지 삭제 (Message 모델이 있다면)
+            try:
+                # messages = room.messages.all()
+                # message_count = messages.count()
+                # messages.delete()
+                # print(f"[DEBUG] 메시지 삭제 완료: {message_count}개")
+                pass
+            except Exception as e:
+                print(f"[WARNING] 메시지 삭제 중 오류: {e}")
+            
+            # 5. 현재 세션에서 선택된 방이 삭제되는 방이라면 세션 정리
+            if request.session.get('selected_room_uuid') == room_uuid:
+                del request.session['selected_room_uuid']
+                print(f"[DEBUG] 세션에서 선택된 방 정보 삭제")
+            
+            # 6. 마지막으로 채팅방 완전 삭제
+            room.delete()
+            print(f"[DEBUG] 채팅방 '{room_name}' 완전 삭제 완료")
+            
+            return JsonResponse({
+                "result": "room_deleted",
+                "message": f"Room '{room_name}' has been permanently deleted",
+                "action": "room_deleted",
+                "deleted_room": {
+                    "uuid": room_uuid,
+                    "name": room_name,
+                    "participant_count": participant_count
+                }
+            })
         
-        print(f"[DEBUG] 방 정보 - 이름: {room_name}, 참가자: {participant_count}명")
-        
-        # 1. SecureData 삭제 (채팅방 시크릿 키)
-        try:
-            from .models import SecureData
-            secure_data = SecureData.objects.filter(room=room)
-            secure_data_count = secure_data.count()
-            secure_data.delete()
-            print(f"[DEBUG] SecureData 삭제 완료: {secure_data_count}개")
-        except Exception as e:
-            print(f"[WARNING] SecureData 삭제 중 오류: {e}")
-        
-        # 2. 참가자 관계 해제 (ManyToMany 관계)
-        try:
-            room.participants.clear()
-            print(f"[DEBUG] 참가자 관계 해제 완료")
-        except Exception as e:
-            print(f"[WARNING] 참가자 관계 해제 중 오류: {e}")
-        
-        # 3. 메시지 삭제 (있다면)
-        try:
-            # Message 모델이 있다면 삭제
-            # messages = room.messages.all()
-            # message_count = messages.count()
-            # messages.delete()
-            # print(f"[DEBUG] 메시지 삭제 완료: {message_count}개")
-            pass
-        except Exception as e:
-            print(f"[WARNING] 메시지 삭제 중 오류: {e}")
-        
-        # 4. 현재 세션에서 선택된 방이 삭제되는 방이라면 세션 정리
-        if request.session.get('selected_room_uuid') == room_uuid:
-            del request.session['selected_room_uuid']
-            print(f"[DEBUG] 세션에서 선택된 방 정보 삭제")
-        
-        # 5. 마지막으로 채팅방 삭제
-        room.delete()
-        print(f"[DEBUG] 채팅방 '{room_name}' 삭제 완료")
-        
-        return JsonResponse({
-            "result": "success",
-            "message": f"Room '{room_name}' has been permanently deleted",
-            "deleted_room": {
-                "uuid": room_uuid,
-                "name": room_name,
-                "participant_count": participant_count
-            }
-        })
+        # === 케이스 2: 참가자가 나가는 경우 - 참가자 목록에서만 제거 ===
+        else:
+            print(f"[DEBUG] 참가자가 나가기 - 참가자 목록에서만 제거")
+            
+            # 참가자 목록에서 해당 사용자 제거
+            room.participants.remove(user_profile)
+            
+            # 방 활동 시간 업데이트
+            from django.utils import timezone
+            room.updated_at = timezone.now()
+            room.save()
+            
+            # 현재 세션에서 선택된 방이 나간 방이라면 세션 정리
+            if request.session.get('selected_room_uuid') == room_uuid:
+                del request.session['selected_room_uuid']
+                print(f"[DEBUG] 세션에서 선택된 방 정보 삭제")
+            
+            remaining_participants = room.participants.count()
+            print(f"[DEBUG] 사용자 {user_profile.username}가 {room.room_name}에서 나감. 남은 참가자: {remaining_participants}명")
+            
+            return JsonResponse({
+                "result": "left_room",
+                "message": f"You have left the room '{room.room_name}'",
+                "action": "left_room", 
+                "room": {
+                    "uuid": str(room.room_uuid),
+                    "name": room.room_name,
+                    "remaining_participants": remaining_participants + 1  # +1은 방장
+                }
+            })
         
     except Exception as e:
         print(f"[ERROR] leave_room 예외 발생: {e}")
         import traceback
         traceback.print_exc()
         return JsonResponse({
-            "error": "Failed to delete room",
-            "message": "An unexpected error occurred while deleting the room"
+            "error": "Failed to leave room",
+            "message": "An unexpected error occurred while leaving the room"
         }, status=500)
 
-
-@require_GET
+@csrf_exempt
+@require_POST
 @login_required
-def generate_totp(request, room_uuid):
-    """현재 선택된 방의 TOTP 생성 - 방장만 가능"""
+def generate_totp(request):
+    """POST로 UUID를 받아서 TOTP 생성 - 방장만 가능"""
     try:
+        print("[DEBUG] generate_totp 시작")
+        
         auth_error = check_authentication(request)
         if auth_error:
             return auth_error
         
-        user_profile = UserProfile.objects.get(user=request.user)
+        # POST body에서 room_uuid 추출
+        try:
+            data = json.loads(request.body)
+            room_uuid = data.get('room_uuid')
+            print(f"[DEBUG] 요청된 room_uuid: {room_uuid}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON format"}, status=400)
         
+        if not room_uuid:
+            return JsonResponse({"error": "Room UUID is required"}, status=400)
+        
+        # 사용자 프로필 가져오기
+        try:
+            user_profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return JsonResponse({"error": "User profile not found"}, status=404)
+        
+        # 방 존재 확인
         try:
             room = ChatRoom.objects.get(room_uuid=room_uuid)
+            print(f"[DEBUG] 방 찾음: {room.room_name}")
         except ChatRoom.DoesNotExist:
-            return JsonResponse({"error": "Selected room not found"}, status=404)
+            return JsonResponse({"error": "Room not found"}, status=404)
         
         # 방장 권한 확인
         if room.admin != user_profile:
-            return JsonResponse({"error": "Only admin can generate TOTP"}, status=403)
+            return JsonResponse({
+                "error": "Permission denied",
+                "message": "Only admin can generate TOTP"
+            }, status=403)
         
         # TOTP 생성
         secret = get_room_secret(room.room_uuid)
@@ -245,25 +322,35 @@ def generate_totp(request, room_uuid):
         
         totp = pyotp.TOTP(secret)
         current_totp = totp.now()
+        print(f"[DEBUG] 생성된 TOTP: {current_totp}")
         
         # Redis에 TOTP -> Room UUID 매핑 저장 (30초 TTL)
         redis_key = f"totp:{current_totp}"
         redis_value = {
             "room_uuid": str(room.room_uuid),
-            "room_name": room.room_name
+            "room_name": room.room_name,
+            "admin": room.admin.username
         }
         redis_client.setex(redis_key, 30, json.dumps(redis_value))
+        print(f"[DEBUG] Redis 저장 완료: {redis_key}")
 
         return JsonResponse({
             "result": "success",
             "totp": current_totp,
             "interval": 30,
-            "room_name": room.room_name
+            "room_name": room.room_name,
+            "room_uuid": str(room.room_uuid)
         })
         
     except Exception as e:
-        return JsonResponse({"error": f"Failed to generate TOTP: {str(e)}"}, status=500)
-    
+        print(f"[ERROR] generate_totp 예외: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            "error": "Failed to generate TOTP",
+            "message": str(e)
+        }, status=500)
+      
 @csrf_exempt
 @require_POST
 @login_required
