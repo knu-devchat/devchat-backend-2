@@ -16,9 +16,9 @@ from datetime import timedelta
 from django.conf import settings
 
 # 🎯 DRF imports (한 번만!)
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from rest_framework import status
+#from rest_framework.decorators import api_view
+#from rest_framework.response import Response
+#from rest_framework import status
 from django.core.paginator import Paginator
 from django.db.models import Q
 import uuid  # UUID 처리용 추가

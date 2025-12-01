@@ -56,12 +56,18 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             
             print(f"[AI_DEBUG] AI 세션 확인 완료 - 기반 방: {room_name}, Session: {self.session_id}")
             
-            # 5. AI 프로필 로드
-            self.ai_profile = await self._get_ai_profile()
-            self.ai_username = self.ai_profile.user.username
+            # 5. AI 프로필 및 사용자명 로드
+            ai_profile_data = await self._get_ai_profile()
+            if not ai_profile_data:
+                print(f"[AI_ERROR] AI 프로필 로드 실패")
+                await self.close(code=4000)
+                return
+            
+            self.ai_profile = ai_profile_data['profile']
+            self.ai_username = ai_profile_data['username']
             print(f"[AI_DEBUG] AI 프로필 로드: {self.ai_username}")
             
-            # 6. 그룹 이름 설정 및 가입
+            # 6. 그룹 이름 설정 및 가입 (AI 전용 그룹만 사용)
             self.room_group_name = f"llm_chat_{self.session_id}"
             await self.channel_layer.group_add(self.room_group_name, self.channel_name)
             await self.accept()
@@ -381,8 +387,12 @@ class AiChatConsumer(AsyncWebsocketConsumer):
                 print(f"[AI_DEBUG] AI UserProfile 생성: {ai_user.username}")
             else:
                 print(f"[AI_DEBUG] AI UserProfile 조회 성공: {ai_user.username}")
-                
-            return ai_profile
+            
+            # username을 여기서 미리 가져와서 반환 (async context에서 접근 방지)
+            return {
+                'profile': ai_profile,
+                'username': ai_user.username
+            }
             
         except Exception as e:
             print(f"[AI_ERROR] AI 프로필 조회/생성 실패: {e}")
@@ -411,11 +421,12 @@ class AiChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def _get_recent_messages_from_db(self, room: ChatRoom, limit: int = 10):
-        """DB에서 최근 메시지를 가져와 OpenAI 형식으로 변환"""
+        """DB에서 최근 AI 채팅 메시지를 가져와 OpenAI 형식으로 변환"""
         try:
-            # 최신순으로 메시지 가져오기
+            # 최신순으로 AI 채팅 메시지만 가져오기
+            # select_related로 관련 데이터를 한번에 로드하여 N+1 쿼리 방지
             messages = list(
-                Message.objects.filter(room=room)
+                Message.objects.filter(room=room, is_ai_chat=True)
                 .select_related('sender__user')
                 .order_by('-created_at')[:limit]
             )
@@ -425,8 +436,9 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             
             formatted_history = []
             
-            # AI 메시지 구분 (캐싱된 ai_username 사용)
+            # AI 메시지 구분
             for msg in messages:
+                # select_related로 이미 로드되어 있으므로 추가 쿼리 없음
                 username = msg.sender.user.username
                 
                 # 역할 구분: AI면 assistant, 사용자면 user
@@ -437,11 +449,11 @@ class AiChatConsumer(AsyncWebsocketConsumer):
                     "content": msg.content
                 })
             
-            print(f"[AI_DEBUG] 대화 히스토리 조회 완료: {len(formatted_history)}개 메시지")
+            print(f"[AI_DEBUG] AI 채팅 히스토리 조회 완료: {len(formatted_history)}개 메시지 (is_ai_chat=True)")
             return formatted_history
             
         except Exception as e:
-            print(f"[AI_ERROR] 대화 히스토리 조회 실패: {e}")
+            print(f"[AI_ERROR] AI 채팅 히스토리 조회 실패: {e}")
             import traceback
             traceback.print_exc()
             return []

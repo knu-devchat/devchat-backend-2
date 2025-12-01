@@ -76,7 +76,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'channels',
-    'rest_framework',
     
     # local apps
     'login',
