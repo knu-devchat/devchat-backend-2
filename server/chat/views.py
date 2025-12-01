@@ -450,8 +450,8 @@ def get_current_room_info(request):
         room_info = {
             "result": "success",
             "room": {
-                "id": str(room.room_uuid),
-                "name": room.room_name,
+                "room_uuid": str(room.room_uuid),
+                "room_name": room.room_name,
                 "description": room.description,
                 "admin": room.admin.username,
                 "participant_count": len(participants),
