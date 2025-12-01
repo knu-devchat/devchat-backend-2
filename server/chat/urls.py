@@ -12,5 +12,5 @@ urlpatterns = [
     path('join/', views.join_room, name='join_room'), # TOTP로 방 참가
     path('select-room/', views.select_room, name='select_room'), # 방 선택
     path('current-room/', views.get_current_room_info, name='get_current_room_info'), # 현재 선택된 방 정보 조회
-    path('messages/', views.list_messages, name='list_messages'), # 메세지 조회
+    path('rooms/<str:room_uuid>/messages/', views.get_room_messages, name='get_room_messages'), # 메세지 조회
 ]

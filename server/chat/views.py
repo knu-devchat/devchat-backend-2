@@ -1,6 +1,6 @@
 import pyotp
 from .crypto_utils import encrypt_aes_gcm, generate_pseudo_number
-from .models import ChatRoom
+from .models import ChatRoom, Message  # Message도 추가
 from login.models import UserProfile
 from login.auth_check import check_authentication
 from .room_utils import load_room_name, save_room_secret_key, get_room_secret
@@ -14,6 +14,14 @@ from django.contrib.auth.models import User
 import redis
 from datetime import timedelta
 from django.conf import settings
+
+# 🎯 DRF imports (한 번만!)
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from rest_framework import status
+from django.core.paginator import Paginator
+from django.db.models import Q
+import uuid  # UUID 처리용 추가
 
 # Redis 설정
 redis_client = redis.Redis(
@@ -561,21 +569,119 @@ def get_current_room_info(request):
         return JsonResponse({"error": f"Failed to get room info: {str(e)}"}, status=500)
 
 
-@require_GET
-@login_required
-def list_messages(request, room_name):
-    """채팅방 이름으로 최근 메시지를 조회"""
-    # room = get_object_or_404(ChatRoom, room_name=room_name)
-    # messages = room.messages.all()
+@api_view(['GET'])
+def get_room_messages(request, room_uuid):
+    """채팅방의 메시지 내역 조회 (HTTP API)"""
+    try:
+        print(f"[API] 메시지 조회 요청 - room_uuid: {room_uuid}")
+        
+        # 1. 인증 확인
+        if not request.user.is_authenticated:
+            return Response({
+                "result": "error", 
+                "message": "로그인이 필요합니다."
+            }, status=status.HTTP_401_UNAUTHORIZED)
 
-    # payload = [
-    #     {
-    #         "id": message.id,
-    #         "username": message.username,
-    #         "content": message.content,
-    #         "created_at": message.created_at.isoformat(),
-    #     }
-    #     for message in messages
-    # ]
+        # 2. UUID 형식 검증
+        try:
+            room_uuid_obj = uuid.UUID(room_uuid)
+        except ValueError:
+            return Response({
+                "result": "error",
+                "message": "잘못된 UUID 형식입니다."
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-    # return JsonResponse({"messages": payload})
+        # 3. 사용자 프로필 조회
+        try:
+            user_profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return Response({
+                "result": "error",
+                "message": "사용자 프로필을 찾을 수 없습니다."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # 4. 채팅방 조회
+        try:
+            room = ChatRoom.objects.select_related('admin__user').get(room_uuid=room_uuid_obj)
+        except ChatRoom.DoesNotExist:
+            return Response({
+                "result": "error",
+                "message": "존재하지 않는 채팅방입니다."
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # 5. 권한 확인 (방장이거나 참가자여야 함)
+        is_admin = room.admin == user_profile
+        is_participant = user_profile in room.participants.all()
+        
+        if not (is_admin or is_participant):
+            return Response({
+                "result": "error",
+                "message": "채팅방에 참여 권한이 없습니다."
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # 6. 페이지네이션 파라미터
+        page = int(request.GET.get('page', 1))
+        limit = min(int(request.GET.get('limit', 50)), 100)  # 최대 100개로 제한
+
+        print(f"[API] 권한 확인 완료 - 방: {room.room_name}, 페이지: {page}, 제한: {limit}")
+
+        # 7. 🎯 해당 채팅방의 메시지만 조회 (최신순)
+        messages_queryset = Message.objects.filter(room=room)\
+            .select_related('sender__user')\
+            .order_by('-created_at')
+        
+        total_count = messages_queryset.count()
+        
+        # 페이지네이션 적용
+        paginator = Paginator(messages_queryset, limit)
+        
+        try:
+            page_obj = paginator.get_page(page)
+        except:
+            return Response({
+                "result": "error",
+                "message": "잘못된 페이지 번호입니다."
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # 8. 응답 데이터 구성 (채팅 순서대로 정렬)
+        message_list = []
+        for msg in reversed(page_obj.object_list):  # 오래된 것부터 (채팅 순서)
+            message_list.append({
+                "id": msg.id,
+                "content": msg.content,
+                "sender_username": msg.sender.user.username,
+                "sender_id": msg.sender.id,
+                "created_at": msg.created_at.isoformat(),
+                "is_self": msg.sender.id == user_profile.id
+            })
+
+        print(f"[API] ✅ 메시지 조회 완료 - {len(message_list)}개 (총 {total_count}개)")
+
+        return Response({
+            "result": "success",
+            "messages": message_list,
+            "room_info": {
+                "room_uuid": str(room.room_uuid),
+                "room_name": room.room_name,
+                "admin_username": room.admin.user.username,
+                "is_admin": is_admin,
+                "participant_count": room.participants.count()
+            },
+            "pagination": {
+                "total": total_count,
+                "page": page,
+                "limit": limit,
+                "has_next": page_obj.has_next(),
+                "has_previous": page_obj.has_previous(),
+                "num_pages": paginator.num_pages
+            }
+        }, status=status.HTTP_200_OK)
+
+    except Exception as e:
+        print(f"[ERROR] 메시지 조회 API 실패: {e}")
+        import traceback
+        traceback.print_exc()
+        return Response({
+            "result": "error",
+            "message": "서버 내부 오류가 발생했습니다."
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
