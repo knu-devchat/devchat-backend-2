@@ -68,9 +68,9 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             print(f"[AI_DEBUG] AI 프로필 로드: {self.ai_username}")
             
             # 6. 그룹 이름 설정 및 가입
-            # AI 전용 그룹 (WebSocket 메시지 수신용)
-            self.ai_group_name = f"llm_chat_{self.session_id}"
-            # 일반 채팅방 그룹 이름 (메시지 브로드캐스트용)
+            # AI 전용 그룹 (room_uuid 기반으로 같은 방의 모든 AI 채팅 사용자가 공유)
+            self.ai_group_name = f"llm_chat_{self.room.room_uuid}"
+            # 일반 채팅방 그룹 이름
             self.room_group_name = f"chat_{self.room.room_uuid}"
             
             await self.channel_layer.group_add(self.ai_group_name, self.channel_name)
