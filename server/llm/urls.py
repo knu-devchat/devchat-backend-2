@@ -9,4 +9,7 @@ urlpatterns = [
     
     # AI 세션 목록 조회
     path('sessions/', views.get_ai_sessions, name='get_ai_sessions'),
+    
+    # AI 메시지 히스토리 조회
+    path('sessions/<str:session_id>/messages/', views.get_ai_messages, name='get_ai_messages'),
 ]

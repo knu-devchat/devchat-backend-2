@@ -3,8 +3,9 @@ from channels.db import database_sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from .models import AiChatSession 
-from chat.models import ChatRoom, Message, UserProfile
+from .models import AiChatSession, AiChatMessage
+from chat.models import ChatRoom
+from login.models import UserProfile
 from .services import get_ai_response 
 
 User = get_user_model()
@@ -150,8 +151,8 @@ class AiChatConsumer(AsyncWebsocketConsumer):
 
         print(f"[AI_DEBUG] 사용자 메시지 처리: {self.username} → {message[:50]}...")
 
-        # 1. 사용자 메시지 DB에 저장
-        stored_message = await self._save_message(self.room, self.user_profile, message)
+        # 1. 사용자 메시지 AI 전용 DB에 저장
+        stored_message = await self._save_ai_message(self.ai_session, self.user_profile, message, is_ai=False)
         
         if not stored_message:
             await self.send(text_data=json.dumps({
@@ -193,8 +194,8 @@ class AiChatConsumer(AsyncWebsocketConsumer):
         try:
             print(f"[AI_DEBUG] AI 응답 생성 시작...")
             
-            # 최근 대화 히스토리 가져오기
-            recent_history = await self._get_recent_messages_from_db(self.room, limit=10)
+            # 최근 대화 히스토리 가져오기 (AI 전용 테이블에서)
+            recent_history = await self._get_recent_messages_from_db(self.ai_session, limit=10)
 
             # AI 페르소나 설정 및 전체 대화 기록 구성
             ai_persona = {
@@ -213,8 +214,8 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             
             print(f"[AI_DEBUG] AI 응답 생성 완료: {ai_text[:50]}...")
 
-            # AI 응답을 DB에 저장
-            stored_response = await self._save_message(self.room, self.ai_profile, ai_text)
+            # AI 응답을 전용 DB에 저장
+            stored_response = await self._save_ai_message(self.ai_session, self.ai_profile, ai_text, is_ai=True)
             
             if not stored_response:
                 raise Exception("AI 응답 저장 실패")
@@ -405,32 +406,32 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             return None
         
     @database_sync_to_async
-    def _save_message(self, room: ChatRoom, sender: UserProfile, content: str):
-        """메시지 DB에 저장 (AI 채팅 전용)"""
+    def _save_ai_message(self, session: AiChatSession, sender: UserProfile, content: str, is_ai: bool = False):
+        """AI 전용 테이블에 메시지 저장"""
         try:
-            message = Message.objects.create(
-                room=room, 
+            message = AiChatMessage.objects.create(
+                session=session,
                 sender=sender, 
                 content=content,
-                created_at=timezone.now(),
-                is_ai_chat=True  # AI 채팅 메시지로 표시
+                is_ai_message=is_ai,
+                created_at=timezone.now()
             )
-            print(f"[AI_DEBUG] AI 채팅 메시지 저장 성공: {sender.user.username} → {content[:50]}...")
+            msg_type = "AI" if is_ai else "User"
+            print(f"[AI_DEBUG] {msg_type} 메시지 저장 성공: {sender.user.username} → {content[:50]}...")
             return message
         except Exception as e:
-            print(f"[AI_ERROR] 메시지 저장 실패: {e}")
+            print(f"[AI_ERROR] AI 메시지 저장 실패: {e}")
             import traceback
             traceback.print_exc()
             return None
 
     @database_sync_to_async
-    def _get_recent_messages_from_db(self, room: ChatRoom, limit: int = 10):
-        """DB에서 최근 AI 채팅 메시지를 가져와 OpenAI 형식으로 변환"""
+    def _get_recent_messages_from_db(self, session: AiChatSession, limit: int = 10):
+        """AI 전용 테이블에서 최근 메시지를 가져와 OpenAI 형식으로 변환"""
         try:
-            # 최신순으로 AI 채팅 메시지만 가져오기
-            # select_related로 관련 데이터를 한번에 로드하여 N+1 쿼리 방지
+            # AI 세션별 메시지 조회 (깔끔하고 빠름)
             messages = list(
-                Message.objects.filter(room=room, is_ai_chat=True)
+                AiChatMessage.objects.filter(session=session)
                 .select_related('sender__user')
                 .order_by('-created_at')[:limit]
             )
@@ -440,24 +441,20 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             
             formatted_history = []
             
-            # AI 메시지 구분
             for msg in messages:
-                # select_related로 이미 로드되어 있으므로 추가 쿼리 없음
-                username = msg.sender.user.username
-                
-                # 역할 구분: AI면 assistant, 사용자면 user
-                role = "assistant" if username == self.ai_username else "user"
+                # is_ai_message 필드로 간단하게 구분
+                role = "assistant" if msg.is_ai_message else "user"
                 
                 formatted_history.append({
                     "role": role, 
                     "content": msg.content
                 })
             
-            print(f"[AI_DEBUG] AI 채팅 히스토리 조회 완료: {len(formatted_history)}개 메시지 (is_ai_chat=True)")
+            print(f"[AI_DEBUG] AI 전용 히스토리 조회 완료: {len(formatted_history)}개 메시지")
             return formatted_history
             
         except Exception as e:
-            print(f"[AI_ERROR] AI 채팅 히스토리 조회 실패: {e}")
+            print(f"[AI_ERROR] AI 히스토리 조회 실패: {e}")
             import traceback
             traceback.print_exc()
             return []
