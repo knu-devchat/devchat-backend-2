@@ -52,6 +52,7 @@ class Message(models.Model):
     sender = models.ForeignKey(UserProfile, on_delete=models.CASCADE)
     content = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
+    is_ai_chat = models.BooleanField(default=False, help_text="AI 채팅방 메시지인지 여부")
 
     class Meta:
         ordering = ["created_at"]

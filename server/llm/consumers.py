@@ -392,15 +392,16 @@ class AiChatConsumer(AsyncWebsocketConsumer):
         
     @database_sync_to_async
     def _save_message(self, room: ChatRoom, sender: UserProfile, content: str):
-        """메시지 DB에 저장"""
+        """메시지 DB에 저장 (AI 채팅 전용)"""
         try:
             message = Message.objects.create(
                 room=room, 
                 sender=sender, 
                 content=content,
-                created_at=timezone.now()
+                created_at=timezone.now(),
+                is_ai_chat=True  # AI 채팅 메시지로 표시
             )
-            print(f"[AI_DEBUG] 메시지 저장 성공: {sender.user.username} → {content[:50]}...")
+            print(f"[AI_DEBUG] AI 채팅 메시지 저장 성공: {sender.user.username} → {content[:50]}...")
             return message
         except Exception as e:
             print(f"[AI_ERROR] 메시지 저장 실패: {e}")

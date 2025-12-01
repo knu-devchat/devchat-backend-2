@@ -626,8 +626,8 @@ def get_room_messages(request, room_uuid):
 
         print(f"[API] 권한 확인 완료 - 방: {room.room_name}, 페이지: {page}, 제한: {limit}")
 
-        # 7. 🎯 해당 채팅방의 메시지만 조회 (최신순)
-        messages_queryset = Message.objects.filter(room=room)\
+        # 7. 🎯 해당 채팅방의 메시지만 조회 (최신순) - AI 채팅 제외
+        messages_queryset = Message.objects.filter(room=room, is_ai_chat=False)\
             .select_related('sender__user')\
             .order_by('-created_at')
         
