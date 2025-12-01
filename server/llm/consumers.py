@@ -67,16 +67,20 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             self.ai_username = ai_profile_data['username']
             print(f"[AI_DEBUG] AI 프로필 로드: {self.ai_username}")
             
-            # 6. 그룹 이름 설정 및 가입 (AI 전용 그룹만 사용)
-            self.room_group_name = f"llm_chat_{self.session_id}"
-            await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+            # 6. 그룹 이름 설정 및 가입
+            # AI 전용 그룹 (WebSocket 메시지 수신용)
+            self.ai_group_name = f"llm_chat_{self.session_id}"
+            # 일반 채팅방 그룹 이름 (메시지 브로드캐스트용)
+            self.room_group_name = f"chat_{self.room.room_uuid}"
+            
+            await self.channel_layer.group_add(self.ai_group_name, self.channel_name)
             await self.accept()
             
             print(f"[AI_SUCCESS] ✅ AI WebSocket 연결 성공: {self.username} → AI Session {self.session_id}")
             
-            # 7. AI 입장 메시지 전송
+            # 7. AI 입장 메시지 전송 (AI 그룹에만)
             await self.channel_layer.group_send(
-                self.room_group_name,
+                self.ai_group_name,
                 {
                     "type": "ai_joined",
                     "username": self.ai_username,
@@ -93,11 +97,11 @@ class AiChatConsumer(AsyncWebsocketConsumer):
     
     async def disconnect(self, close_code):
         try:
-            if hasattr(self, 'room_group_name') and hasattr(self, 'username'):
+            if hasattr(self, 'ai_group_name') and hasattr(self, 'username'):
                 print(f"[AI_DEBUG] AI WebSocket 연결 종료: {self.username} (code: {close_code})")
                 
-                # 그룹에서 제거
-                await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+                # AI 그룹에서 제거
+                await self.channel_layer.group_discard(self.ai_group_name, self.channel_name)
                 
         except Exception as e:
             print(f"[AI_ERROR] AI WebSocket 연결 종료 중 오류: {e}")
@@ -156,9 +160,9 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             }))
             return
         
-        # 2. 사용자 메시지를 그룹에 브로드캐스트
+        # 2. 사용자 메시지를 AI 그룹에만 브로드캐스트
         await self.channel_layer.group_send(
-            self.room_group_name,
+            self.ai_group_name,
             {
                 "type": "chat_message",
                 "message": message,
@@ -170,11 +174,11 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             }
         )
         
-        print(f"[AI_DEBUG] 사용자 메시지 브로드캐스트 완료")
+        print(f"[AI_DEBUG] 사용자 메시지 브로드캐스트 완료 (AI 그룹만)")
         
-        # 3. AI 처리 시작 표시
+        # 3. AI 처리 시작 표시 (AI 그룹에만)
         await self.channel_layer.group_send(
-            self.room_group_name,
+            self.ai_group_name,
             {
                 "type": "ai_thinking",
                 "username": self.ai_username,
@@ -215,9 +219,9 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             if not stored_response:
                 raise Exception("AI 응답 저장 실패")
             
-            # AI 응답을 그룹에 브로드캐스트
+            # AI 응답을 AI 그룹에만 브로드캐스트
             await self.channel_layer.group_send(
-                self.room_group_name,
+                self.ai_group_name,
                 {
                     "type": "chat_message",
                     "message": ai_text,
@@ -229,16 +233,16 @@ class AiChatConsumer(AsyncWebsocketConsumer):
                 }
             )
             
-            print(f"[AI_DEBUG] AI 응답 브로드캐스트 완료")
+            print(f"[AI_DEBUG] AI 응답 브로드캐스트 완료 (AI 그룹만)")
             
         except Exception as e:
             print(f"[AI_ERROR] AI 응답 생성 중 오류: {e}")
             import traceback
             traceback.print_exc()
             
-            # 에러 메시지 전송
+            # 에러 메시지 전송 (AI 그룹에만)
             await self.channel_layer.group_send(
-                self.room_group_name,
+                self.ai_group_name,
                 {
                     "type": "ai_error",
                     "message": "AI 응답 생성 중 오류가 발생했습니다.",
