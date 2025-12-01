@@ -14,6 +14,50 @@ from django.contrib.auth.models import User
 
 
 # Create your views here.
+@require_GET
+@login_required
+def get_my_rooms(request):
+    """사용자가 참여한 모든 방 목록 반환"""
+    try:
+        auth_error = check_authentication(request)
+        if auth_error:
+            return auth_error
+        
+        try:
+            user_profile = UserProfile.objects.get(user=request.user)
+        except UserProfile.DoesNotExist:
+            return JsonResponse({"rooms": [], "total_count": 0})
+        
+        # 방장인 방 + 참가자인 방
+        admin_rooms = ChatRoom.objects.filter(admin=user_profile)
+        participant_rooms = ChatRoom.objects.filter(participants=user_profile)
+        all_rooms = (admin_rooms | participant_rooms).distinct().order_by('-updated_at')
+        
+        rooms_data = []
+        for room in all_rooms:
+            room_info = {
+                "id": str(room.room_uuid),  # 프론트가 이걸로 방 식별
+                "name": room.room_name,
+                "description": room.description,
+                "admin": room.admin.username,
+                "is_admin": (room.admin == user_profile),
+                "participant_count": room.participants.count() + 1,
+                "last_activity": room.updated_at.isoformat(),
+                "created_at": room.created_at.isoformat()
+            }
+            rooms_data.append(room_info)
+        
+        return JsonResponse({
+            "result": "success",
+            "rooms": rooms_data,
+            "total_count": len(rooms_data)
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Failed to get rooms: {str(e)}"}, status=500)
+
+
+
 @csrf_exempt
 @require_POST
 def create_chat_room(request):
@@ -63,61 +107,163 @@ def create_chat_room(request):
         }, status=500)
 
 
-# chat/views.py의 generate_TOTP 함수 수정
-@require_GET
+@csrf_exempt
+@require_POST
 @login_required
-def generate_TOTP(request, room_uuid):
-    """totp 6자리 숫자 반환 - 방장만 생성 가능"""
+def delete_room(request):
+    """채팅방 삭제 - 방장만 가능, 모든 관련 데이터 삭제"""
     try:
+        print(f"[DEBUG] leave_room 시작 - User: {request.user.username}")
+        
         # 인증 체크
         auth_error = check_authentication(request)
         if auth_error:
             return auth_error
         
-        # 1. UUID로 방 찾기
+        # 요청 데이터 파싱
         try:
-            room = ChatRoom.objects.get(room_uuid=room_uuid)
-        except ChatRoom.DoesNotExist:
-            return JsonResponse({"error": "Room not found"}, status=404)
-
-        # 2. 현재 사용자 프로필 가져오기
+            data = json.loads(request.body)
+            room_uuid = data.get('room_uuid')
+            print(f"[DEBUG] 삭제할 방 UUID: {room_uuid}")
+        except json.JSONDecodeError:
+            return JsonResponse({"error": "Invalid JSON format"}, status=400)
+        
+        if not room_uuid:
+            return JsonResponse({"error": "Room UUID is required"}, status=400)
+        
+        # 현재 사용자 프로필 가져오기
         try:
             user_profile = UserProfile.objects.get(user=request.user)
         except UserProfile.DoesNotExist:
-            return JsonResponse({"error": "User profile not found"}, status=400)
+            return JsonResponse({"error": "User profile not found"}, status=404)
         
-        # 3. 권한 확인: 방장만 TOTP 생성 가능
+        # 채팅방 존재 확인
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_uuid)
+            print(f"[DEBUG] 삭제할 방: {room.room_name}")
+        except ChatRoom.DoesNotExist:
+            return JsonResponse({"error": "Room not found"}, status=404)
+        
+        # 방장 권한 확인 (방장만 방을 삭제할 수 있음)
         if room.admin != user_profile:
-            return JsonResponse({"error": "Only room admin can generate TOTP"}, status=403)
-
-        # 4. DB에서 채팅방 비밀키 가져와서 복호화
-        secret = get_room_secret(room.room_uuid)
+            return JsonResponse({
+                "error": "Permission denied", 
+                "message": "Only room admin can delete the room"
+            }, status=403)
         
-        if secret is None:
-            return JsonResponse({"error": "Room secret not found"}, status=404)
+        # 삭제 전 정보 저장
+        room_name = room.room_name
+        participant_count = room.participants.count()
         
-        # 5. 복호화된 비밀키로 TOTP 생성
-        totp = pyotp.TOTP(secret)
-        code = totp.now()
+        print(f"[DEBUG] 방 정보 - 이름: {room_name}, 참가자: {participant_count}명")
+        
+        # 1. SecureData 삭제 (채팅방 시크릿 키)
+        try:
+            from .models import SecureData
+            secure_data = SecureData.objects.filter(room=room)
+            secure_data_count = secure_data.count()
+            secure_data.delete()
+            print(f"[DEBUG] SecureData 삭제 완료: {secure_data_count}개")
+        except Exception as e:
+            print(f"[WARNING] SecureData 삭제 중 오류: {e}")
+        
+        # 2. 참가자 관계 해제 (ManyToMany 관계)
+        try:
+            room.participants.clear()
+            print(f"[DEBUG] 참가자 관계 해제 완료")
+        except Exception as e:
+            print(f"[WARNING] 참가자 관계 해제 중 오류: {e}")
+        
+        # 3. 메시지 삭제 (있다면)
+        try:
+            # Message 모델이 있다면 삭제
+            # messages = room.messages.all()
+            # message_count = messages.count()
+            # messages.delete()
+            # print(f"[DEBUG] 메시지 삭제 완료: {message_count}개")
+            pass
+        except Exception as e:
+            print(f"[WARNING] 메시지 삭제 중 오류: {e}")
+        
+        # 4. 현재 세션에서 선택된 방이 삭제되는 방이라면 세션 정리
+        if request.session.get('selected_room_uuid') == room_uuid:
+            del request.session['selected_room_uuid']
+            print(f"[DEBUG] 세션에서 선택된 방 정보 삭제")
+        
+        # 5. 마지막으로 채팅방 삭제
+        room.delete()
+        print(f"[DEBUG] 채팅방 '{room_name}' 삭제 완료")
         
         return JsonResponse({
-            "totp": code,
-            "interval": totp.interval,
-            "room_name": room.room_name,
-            "room_uuid": str(room.room_uuid),
+            "result": "success",
+            "message": f"Room '{room_name}' has been permanently deleted",
+            "deleted_room": {
+                "uuid": room_uuid,
+                "name": room_name,
+                "participant_count": participant_count
+            }
         })
         
     except Exception as e:
-        return JsonResponse({"error": "Failed to generate TOTP"}, status=500)
+        print(f"[ERROR] leave_room 예외 발생: {e}")
+        import traceback
+        traceback.print_exc()
+        return JsonResponse({
+            "error": "Failed to delete room",
+            "message": "An unexpected error occurred while deleting the room"
+        }, status=500)
+
+
+@require_GET
+@login_required
+def generate_totp_for_selected_room(request):
+    """현재 선택된 방의 TOTP 생성 - 방장만 가능"""
+    try:
+        auth_error = check_authentication(request)
+        if auth_error:
+            return auth_error
+        
+        room_uuid = request.session.get('selected_room_uuid')
+        if not room_uuid:
+            return JsonResponse({"error": "No room selected"}, status=400)
+        
+        user_profile = UserProfile.objects.get(user=request.user)
+        
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_uuid)
+        except ChatRoom.DoesNotExist:
+            return JsonResponse({"error": "Selected room not found"}, status=404)
+        
+        # 방장 권한 확인
+        if room.admin != user_profile:
+            return JsonResponse({"error": "Only admin can generate TOTP"}, status=403)
+        
+        # TOTP 생성
+        secret = get_room_secret(room.room_uuid)
+        if not secret:
+            return JsonResponse({"error": "Room secret not found"}, status=404)
+        
+        totp = pyotp.TOTP(secret)
+        current_totp = totp.now()
+        
+        return JsonResponse({
+            "result": "success",
+            "totp": current_totp,
+            "interval": 30,
+            "room_name": room.room_name
+        })
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Failed to generate TOTP: {str(e)}"}, status=500)
     
+@csrf_exempt
 @require_POST
 @login_required
-def join_room(request, room_uuid):
-    """사용자가 totp 인증을 통해 방에 참여"""
-    # req: totp(123456)
-    # res: result(success), room_id(12)
-    # res: error(nvalid_totp)
+def join_room(request):
+    """TOTP 코드만으로 방 참여 - UUID 불필요"""
     try:
+        print(f"[DEBUG] join_room_by_totp 시작 - User: {request.user.username}")
+        
         # 인증 체크
         auth_error = check_authentication(request)
         if auth_error:
@@ -127,6 +273,7 @@ def join_room(request, room_uuid):
         try:
             data = json.loads(request.body)
             totp_code = data.get('totp')
+            print(f"[DEBUG] 입력된 TOTP: {totp_code}")
         except json.JSONDecodeError:
             return JsonResponse({"error": "Invalid JSON format"}, status=400)
         
@@ -134,68 +281,192 @@ def join_room(request, room_uuid):
             return JsonResponse({"error": "TOTP code is required"}, status=400)
         
         # TOTP 6자리인지 검증
-        if not (totp_code.isdigit() and len(totp_code)==6):
+        if not (totp_code.isdigit() and len(totp_code) == 6):
             return JsonResponse({"error": "Invalid TOTP format. Must be 6 digits."}, status=400)
         
-        # 1. UUID로 방 찾기
-        try:
-            room = ChatRoom.objects.get(room_uuid=room_uuid)
-        except ChatRoom.DoesNotExist:
-            return JsonResponse({"error": "Room not found"}, status=404)
-        
-        # 2. 현재 사용자 프로필 가져오기
+        # 현재 사용자 프로필 가져오기
         try:
             user_profile = UserProfile.objects.get(user=request.user)
         except UserProfile.DoesNotExist:
             user_profile = UserProfile.objects.create(user=request.user)
-
-        # 3. 이미 참여 중인지 확인
-        if user_profile in room.participants.all() or room.admin == user_profile:
-            return JsonResponse({
-                "result": "already_joined",
-                "message": "You are already a participant in this room",
-                "room_uuid": str(room.room_uuid),
-                "room_name": room.room_name
-            })
         
-        # 4. TOTP 코드 검증
-        secret = get_room_secret(room.room_uuid)
-        if secret is None:
-            return JsonResponse({"error": "Room secret not found"}, status=404)
+        print(f"[DEBUG] 사용자 프로필: {user_profile.username}")
         
-        totp = pyotp.TOTP(secret)
-        # valid_window=1: 현재 시간 +-30초 범위에서 검증
-        if not totp.verify(totp_code, valid_window=1):
-            return JsonResponse({
-                "error": "invalid_totp",
-                "message": "Invalid or expired TOTP code"
-            }, status=400)
+        # 모든 활성 채팅방에서 TOTP 검증
+        rooms = ChatRoom.objects.all()
+        print(f"[DEBUG] 검색할 방 개수: {rooms.count()}")
         
-        # 5. 방에 참여 추가
-        room.participants.add(user_profile)
-
+        for room in rooms:
+            try:
+                print(f"[DEBUG] 방 검사 중: {room.room_name} (UUID: {room.room_uuid})")
+                
+                # 방의 시크릿 키 가져오기
+                secret = get_room_secret(room.room_uuid)
+                if not secret:
+                    print(f"[DEBUG] {room.room_name}: 시크릿 키 없음")
+                    continue
+                
+                # TOTP 검증
+                totp = pyotp.TOTP(secret)
+                current_totp = totp.now()
+                print(f"[DEBUG] {room.room_name}: 현재 TOTP = {current_totp}, 입력 = {totp_code}")
+                
+                if totp.verify(totp_code, valid_window=1):
+                    print(f"[DEBUG] TOTP 일치! 방: {room.room_name}")
+                    
+                    # 이미 참여 중인지 확인
+                    if user_profile in room.participants.all() or room.admin == user_profile:
+                        return JsonResponse({
+                            "result": "already_joined",
+                            "message": "You are already a participant in this room",
+                            "room_uuid": str(room.room_uuid),
+                            "room_name": room.room_name,
+                            "admin": room.admin.username
+                        })
+                    
+                    # 방에 참여 추가
+                    room.participants.add(user_profile)
+                    print(f"[DEBUG] 사용자 {user_profile.username}를 {room.room_name}에 추가 완료")
+                    
+                    return JsonResponse({
+                        "result": "success",
+                        "message": "Successfully joined the room",
+                        "room_uuid": str(room.room_uuid),
+                        "room_name": room.room_name,
+                        "participant_count": room.participants.count(),
+                        "admin": room.admin.username,
+                        "user_role": "participant"
+                    })
+                else:
+                    print(f"[DEBUG] {room.room_name}: TOTP 불일치")
+                    
+            except Exception as e:
+                print(f"[ERROR] 방 {room.room_name} 검증 중 오류: {e}")
+                continue
+        
+        # 모든 방을 확인했지만 일치하는 TOTP가 없음
+        print("[DEBUG] 모든 방 검사 완료 - 일치하는 TOTP 없음")
         return JsonResponse({
-            "result": "success",
-            "message": "Successfully joined the room",
-            "room_uuid": str(room.room_uuid),
-            "room_name": room.room_name,
-            "participant_count": room.participants.count(),
-            "admin": room.admin.username
-        })
-    
+            "error": "invalid_totp",
+            "message": "Invalid or expired TOTP code"
+        }, status=400)
+        
     except Exception as e:
-        print(f"[ERROR] join_room: {e}")
+        print(f"[ERROR] join_room_by_totp 예외 발생: {e}")
+        import traceback
+        traceback.print_exc()
         return JsonResponse({
             "error": "Failed to join room",
             "message": "An unexpected error occurred"
         }, status=500)
 
+@csrf_exempt
+@require_POST
+@login_required
+def select_room(request):
+    """방 목록에서 방을 선택했을 때 서버 세션에 저장"""
+    try:
+        auth_error = check_authentication(request)
+        if auth_error:
+            return auth_error
+        
+        data = json.loads(request.body)
+        room_id = data.get('room_uuid')  # 방 목록에서 받은 ID (UUID)
+        
+        if not room_id:
+            return JsonResponse({"error": "Room ID is required"}, status=400)
+        
+        # 권한 확인
+        user_profile = UserProfile.objects.get(user=request.user)
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_id)
+            
+            is_admin = (room.admin == user_profile)
+            is_participant = user_profile in room.participants.all()
+            
+            if not (is_admin or is_participant):
+                return JsonResponse({"error": "Access denied"}, status=403)
+            
+            # 세션에 선택된 방 저장
+            request.session['selected_room_uuid'] = room_id
+            
+            return JsonResponse({
+                "result": "success",
+                "message": "Room selected successfully"
+            })
+            
+        except ChatRoom.DoesNotExist:
+            return JsonResponse({"error": "Room not found"}, status=404)
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Failed to select room: {str(e)}"}, status=500)
+
+
 @require_GET
 @login_required
-def enter_room(request):
-    """이미 참여한 방은 인증 없이 입장"""
-    # res: result(entered), room_id(12)
-    pass
+def get_current_room_info(request):
+    """현재 선택된 방의 상세 정보 반환 - UUID 불필요"""
+    try:
+        auth_error = check_authentication(request)
+        if auth_error:
+            return auth_error
+        
+        # 세션에서 선택된 방 UUID 가져오기
+        room_uuid = request.session.get('selected_room_uuid')
+        if not room_uuid:
+            return JsonResponse({"error": "No room selected"}, status=400)
+        
+        user_profile = UserProfile.objects.get(user=request.user)
+        
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_uuid)
+        except ChatRoom.DoesNotExist:
+            return JsonResponse({"error": "Selected room not found"}, status=404)
+        
+        # 권한 확인
+        is_admin = (room.admin == user_profile)
+        is_participant = user_profile in room.participants.all()
+        
+        if not (is_admin or is_participant):
+            return JsonResponse({"error": "Access denied"}, status=403)
+        
+        # 참가자 목록
+        participants = []
+        participants.append({
+            "username": room.admin.username,
+            "role": "admin",
+            "is_admin": True
+        })
+        
+        for participant in room.participants.all():
+            if participant != room.admin:
+                participants.append({
+                    "username": participant.username,
+                    "role": "participant",
+                    "is_admin": False
+                })
+        
+        room_info = {
+            "result": "success",
+            "room": {
+                "id": str(room.room_uuid),
+                "name": room.room_name,
+                "description": room.description,
+                "admin": room.admin.username,
+                "participant_count": len(participants),
+                "participants": participants,
+                "user_role": "admin" if is_admin else "participant",
+                "can_generate_totp": is_admin,
+                "created_at": room.created_at.isoformat(),
+                "updated_at": room.updated_at.isoformat()
+            }
+        }
+        
+        return JsonResponse(room_info)
+        
+    except Exception as e:
+        return JsonResponse({"error": f"Failed to get room info: {str(e)}"}, status=500)
+
 
 @require_GET
 @login_required
