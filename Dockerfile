@@ -1,32 +1,48 @@
-# Dockerfile
 FROM python:3.11-slim
 
 WORKDIR /app
 
-# 시스템 패키지
+# 시스템 의존성 설치
 RUN apt-get update && apt-get install -y \
-    git curl && rm -rf /var/lib/apt/lists/*
+    gcc \
+    sqlite3 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Python 의존성
-COPY requirements.txt .
-RUN pip install -r requirements.txt
+# Python 의존성 설치
+COPY requirements.txt* ./
+RUN if [ -f requirements.txt ]; then \
+    pip install --no-cache-dir -r requirements.txt; \
+    else \
+    pip install --no-cache-dir \
+        django==4.2.7 \
+        djangorestframework==3.14.0 \
+        django-cors-headers==4.3.1 \
+        channels==4.0.0 \
+        channels-redis==4.1.0 \
+        redis==4.6.0 \
+        cryptography==41.0.7 \
+        requests==2.31.0 \
+        django-allauth==0.57.0 \
+        daphne==4.0.0 \
+        psycopg2-binary==2.9.7; \
+    fi
 
-# 개발용 패키지 추가
-RUN pip install django-cors-headers
+# 프로젝트 코드 복사
+COPY server/ ./server/
 
-COPY . .
 WORKDIR /app/server
 
-# 개발용 초기화
-RUN echo '#!/bin/bash\n\
-python manage.py makemigrations\n\
-python manage.py migrate\n\
-python manage.py shell -c "\
-from django.contrib.auth.models import User;\
-User.objects.get_or_create(username='\''admin'\'', defaults={'\''is_superuser'\'': True, '\''is_staff'\'': True});\
-User.objects.filter(username='\''admin'\'').update(password='\''pbkdf2_sha256$600000$x$hash'\'');\
-"\n\
-exec "$@"' > /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
+# SQLite 데이터베이스 디렉토리 생성 및 권한 설정
+RUN mkdir -p /app/server/db && \
+    chmod 755 /app/server/db && \
+    touch /app/server/db.sqlite3 && \
+    chmod 664 /app/server/db.sqlite3
 
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["daphne", "server.asgi:application", "-b", "0.0.0.0", "-p", "8000"]
+EXPOSE 8000
+
+# 헬스체크 추가
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/admin/ || exit 1
+
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

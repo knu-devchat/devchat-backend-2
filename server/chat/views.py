@@ -13,9 +13,14 @@ import json
 from django.contrib.auth.models import User
 import redis
 from datetime import timedelta
+from django.conf import settings
 
 # Redis 설정
-redis_client = redis.Redis(host="localhost", port=6379, db=0)
+redis_client = redis.Redis(
+    host=getattr(settings, 'REDIS_HOST', 'redis'),
+    port=getattr(settings, 'REDIS_PORT', 6379),
+    decode_responses=True
+)
 
 # Create your views here.
 @require_GET

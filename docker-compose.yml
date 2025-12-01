@@ -4,29 +4,74 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    ports:
+      - "6379:6379"
     volumes:
       - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
   web:
     build: .
+    restart: unless-stopped
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
       - DEBUG=True
-      - CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173
+      - PYTHONUNBUFFERED=1
+      - CSRF_TRUSTED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000,http://localhost:5173,http://localhost:3000
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173
       - ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
     volumes:
-      - sqlite_data:/app/server
+      - ./server:/app/server
+      - sqlite_data:/app/server/db
+      - static_files:/app/server/staticfiles
+      - media_files:/app/server/media
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     command: >
       sh -c "cd /app/server &&
-             python manage.py migrate &&
              python manage.py collectstatic --noinput &&
-             daphne server.asgi:application -b 0.0.0.0 -p 8000"
+             python manage.py migrate &&
+             python manage.py runserver 0.0.0.0:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/admin/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # WebSocket 서버 (선택사항 - 필요시 분리)
+  websocket:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      - DEBUG=True
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./server:/app/server
+      - sqlite_data:/app/server/db
+    depends_on:
+      redis:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    command: >
+      sh -c "cd /app/server &&
+             daphne -b 0.0.0.0 -p 8001 server.asgi:application"
+
 volumes:
-  sqlite_data:
   redis_data:
+  sqlite_data:
+  static_files:
+  media_files:

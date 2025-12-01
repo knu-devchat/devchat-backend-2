@@ -45,6 +45,11 @@ if not CORS_ALLOW_ALL_ORIGINS:
     CORS_ALLOWED_ORIGINS = os.environ.get('CORS_ALLOWED_ORIGINS', '').split(',')
 CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',')
 
+# Redis 설정 추가
+REDIS_HOST = os.environ.get('REDIS_HOST', 'redis')  # Docker 서비스명
+REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+REDIS_URL = f"redis://{REDIS_HOST}:{REDIS_PORT}"
+
 # 세션 설정 강화
 SESSION_COOKIE_DOMAIN = None # 현재 도메인만 사용
 SESSION_COOKIE_SECURE = False  # HTTP에서도 작동
@@ -159,12 +164,12 @@ TEMPLATES = [
 WSGI_APPLICATION = 'server.wsgi.application'
 ASGI_APPLICATION = 'server.asgi.application'
 
-# Channels
+# Channels - Redis 호스트명 수정
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [('redis', 6379)],
+            "hosts": [(REDIS_HOST, REDIS_PORT)],
         },
     },
 }
@@ -221,3 +226,38 @@ STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# REST Framework 설정 추가
+REST_FRAMEWORK = {
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.AllowAny',  # 임시로 모든 요청 허용
+    ],
+}
+
+# 개발 모드에서 더 상세한 로깅
+if DEBUG:
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'console': {
+                'class': 'logging.StreamHandler',
+            },
+        },
+        'loggers': {
+            'django': {
+                'handlers': ['console'],
+                'level': 'INFO',
+            },
+            'chat': {
+                'handlers': ['console'],
+                'level': 'DEBUG',
+            },
+        },
+    }
