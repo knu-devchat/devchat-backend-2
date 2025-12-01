@@ -11,7 +11,11 @@ from django.views.decorators.csrf import csrf_exempt
 from django.contrib.auth.decorators import login_required
 import json
 from django.contrib.auth.models import User
+import redis
+from datetime import timedelta
 
+# Redis 설정
+redis_client = redis.Redis(host="localhost", port=6379, db=0)
 
 # Create your views here.
 @require_GET
@@ -216,16 +220,12 @@ def delete_room(request):
 
 @require_GET
 @login_required
-def generate_totp_for_selected_room(request):
+def generate_totp_for_selected_room(request, room_uuid):
     """현재 선택된 방의 TOTP 생성 - 방장만 가능"""
     try:
         auth_error = check_authentication(request)
         if auth_error:
             return auth_error
-        
-        room_uuid = request.session.get('selected_room_uuid')
-        if not room_uuid:
-            return JsonResponse({"error": "No room selected"}, status=400)
         
         user_profile = UserProfile.objects.get(user=request.user)
         
@@ -246,6 +246,14 @@ def generate_totp_for_selected_room(request):
         totp = pyotp.TOTP(secret)
         current_totp = totp.now()
         
+        # Redis에 TOTP -> Room UUID 매핑 저장 (30초 TTL)
+        redis_key = f"totp:{current_totp}"
+        redis_value = {
+            "room_uuid": str(room.room_uuid),
+            "room_name": room.room_name
+        }
+        redis_client.setex(redis_key, 30, json.dumps(redis_value))
+
         return JsonResponse({
             "result": "success",
             "totp": current_totp,
@@ -291,68 +299,61 @@ def join_room(request):
             user_profile = UserProfile.objects.create(user=request.user)
         
         print(f"[DEBUG] 사용자 프로필: {user_profile.username}")
+
+        # Redis에서 빠르게 검색
+        redis_key = f"totp:{totp_code}"
+        room_data = redis_client.get(redis_key)
+
+        if not room_data:
+            return JsonResponse({"error": "Invalid or expired TOTP"}, status=400)
+
+        # Redis에서 방 정보 추출
+        try:
+            room_info = json.loads(room_data)
+            room_uuid_from_cache = room_info['room_uuid']
+            room_name_from_cache = room_info['room_name']
+        except (json.JSONDecodeError, KeyError) as e:
+            return JsonResponse({"error": "Invalid cached room data"}, status=500)
         
-        # 모든 활성 채팅방에서 TOTP 검증
-        rooms = ChatRoom.objects.all()
-        print(f"[DEBUG] 검색할 방 개수: {rooms.count()}")
+        # 해당 방 가져오기
+        try:
+            room = ChatRoom.objects.get(room_uuid=room_uuid_from_cache)
+        except ChatRoom.DoesNotExist:
+            redis_client.delete(redis_key)
+            return JsonResponse({"error": "Room no longer exists"}, status=404)
         
-        for room in rooms:
-            try:
-                print(f"[DEBUG] 방 검사 중: {room.room_name} (UUID: {room.room_uuid})")
-                
-                # 방의 시크릿 키 가져오기
-                secret = get_room_secret(room.room_uuid)
-                if not secret:
-                    print(f"[DEBUG] {room.room_name}: 시크릿 키 없음")
-                    continue
-                
-                # TOTP 검증
-                totp = pyotp.TOTP(secret)
-                current_totp = totp.now()
-                print(f"[DEBUG] {room.room_name}: 현재 TOTP = {current_totp}, 입력 = {totp_code}")
-                
-                if totp.verify(totp_code, valid_window=1):
-                    print(f"[DEBUG] TOTP 일치! 방: {room.room_name}")
-                    
-                    # 이미 참여 중인지 확인
-                    if user_profile in room.participants.all() or room.admin == user_profile:
-                        return JsonResponse({
-                            "result": "already_joined",
-                            "message": "You are already a participant in this room",
-                            "room_uuid": str(room.room_uuid),
-                            "room_name": room.room_name,
-                            "admin": room.admin.username
-                        })
-                    
-                    # 방에 참여 추가
-                    room.participants.add(user_profile)
-                    print(f"[DEBUG] 사용자 {user_profile.username}를 {room.room_name}에 추가 완료")
-                    
-                    return JsonResponse({
-                        "result": "success",
-                        "message": "Successfully joined the room",
-                        "room_uuid": str(room.room_uuid),
-                        "room_name": room.room_name,
-                        "participant_count": room.participants.count(),
-                        "admin": room.admin.username,
-                        "user_role": "participant"
-                    })
-                else:
-                    print(f"[DEBUG] {room.room_name}: TOTP 불일치")
-                    
-            except Exception as e:
-                print(f"[ERROR] 방 {room.room_name} 검증 중 오류: {e}")
-                continue
+        # 이미 참여 중인지 확인
+        if user_profile in room.participants.all() or room.admin == user_profile:
+            print(f"[DEBUG] 사용자 이미 참여 중: {user_profile.username}")
+            return JsonResponse({
+                "result": "already_joined",
+                "message": "You are already a participant in this room",
+                "room_uuid": str(room.room_uuid),
+                "room_name": room.room_name,
+                "admin": room.admin.username
+            })
         
-        # 모든 방을 확인했지만 일치하는 TOTP가 없음
-        print("[DEBUG] 모든 방 검사 완료 - 일치하는 TOTP 없음")
+        # 방에 참여 추가
+        room.participants.add(user_profile)
+        print(f"[DEBUG] 사용자 {user_profile.username}를 {room.room_name}에 추가 완료")
+        
+        # 방 활동 시간 업데이트 (선택사항)
+        from django.utils import timezone
+        room.updated_at = timezone.now()
+        room.save()
+        
         return JsonResponse({
-            "error": "invalid_totp",
-            "message": "Invalid or expired TOTP code"
-        }, status=400)
+            "result": "success",
+            "message": "Successfully joined the room",
+            "room_uuid": str(room.room_uuid),
+            "room_name": room.room_name,
+            "participant_count": room.participants.count(),
+            "admin": room.admin.username,
+            "user_role": "participant"
+        })
         
     except Exception as e:
-        print(f"[ERROR] join_room_by_totp 예외 발생: {e}")
+        print(f"[ERROR] join_room 예외 발생: {e}")
         import traceback
         traceback.print_exc()
         return JsonResponse({
