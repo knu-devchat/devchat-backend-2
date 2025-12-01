@@ -79,7 +79,18 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             
             print(f"[AI_SUCCESS] ✅ AI WebSocket 연결 성공: {self.username} → AI Session {self.session_id}")
             
-            # 7. AI 입장 메시지 전송 (AI 그룹에만)
+            # 7. 연결 안정화를 위한 짧은 지연
+            import asyncio
+            await asyncio.sleep(0.1)
+            
+            # 8. 연결 상태 확인 후 히스토리 전송
+            if self.channel_name:
+                print(f"[AI_DEBUG] 🔌 WebSocket 연결 상태 확인 완료, 히스토리 전송 시작")
+                await self._send_message_history()
+            else:
+                print(f"[AI_WARNING] ⚠️ WebSocket 연결 상태 불안정, 히스토리 전송 건너뜀")
+            
+            # 9. AI 입장 메시지 전송 (AI 그룹에만)
             await self.channel_layer.group_send(
                 self.ai_group_name,
                 {
@@ -117,9 +128,11 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             
             print(f"[AI_DEBUG] AI 메시지 수신: type={message_type}, data={data}")
             
-            # 프론트엔드에서 보내는 'chat_message' 타입 처리
+            # 프론트엔드에서 보내는 메시지 타입별 처리
             if message_type == "chat_message":
                 await self._handle_chat_message(data)
+            elif message_type == "get_message_history":
+                await self._handle_get_message_history(data)
             else:
                 print(f"[AI_WARNING] 알 수 없는 메시지 타입: {message_type}")
                 
@@ -188,6 +201,50 @@ class AiChatConsumer(AsyncWebsocketConsumer):
         
         # 4. AI 응답 생성 및 전송
         await self._process_ai_request(message)
+
+    async def _handle_get_message_history(self, data):
+        """메시지 히스토리 요청 처리"""
+        try:
+            page = data.get("page", 1)
+            limit = min(data.get("limit", 50), 100)  # 최대 100개로 제한
+            
+            print(f"[AI_DEBUG] 메시지 히스토리 요청: page={page}, limit={limit}")
+            
+            # 페이지네이션을 고려한 히스토리 조회
+            offset = (page - 1) * limit
+            history_messages = await self._get_paginated_message_history(self.ai_session, offset, limit)
+            total_count = await self._get_total_message_count(self.ai_session)
+            
+            # 페이지네이션 정보 계산
+            total_pages = (total_count + limit - 1) // limit
+            has_next = page < total_pages
+            has_previous = page > 1
+            
+            # 히스토리 응답 전송
+            await self.send(text_data=json.dumps({
+                "type": "message_history",
+                "messages": history_messages,
+                "pagination": {
+                    "current_page": page,
+                    "total_pages": total_pages,
+                    "total_messages": total_count,
+                    "has_next": has_next,
+                    "has_previous": has_previous
+                },
+                "session_id": self.session_id
+            }))
+            
+            print(f"[AI_DEBUG] 메시지 히스토리 응답 완료: {len(history_messages)}개 메시지")
+            
+        except Exception as e:
+            print(f"[AI_ERROR] 메시지 히스토리 요청 처리 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            await self.send(text_data=json.dumps({
+                "type": "error",
+                "message": "메시지 히스토리를 불러올 수 없습니다."
+            }))
 
     async def _process_ai_request(self, user_message: str):
         """AI 응답 생성 및 전송"""
@@ -458,3 +515,150 @@ class AiChatConsumer(AsyncWebsocketConsumer):
             import traceback
             traceback.print_exc()
             return []
+
+    @database_sync_to_async
+    def _get_message_history_for_client(self, session: AiChatSession, limit: int = 50):
+        """클라이언트에게 보낼 메시지 히스토리 조회"""
+        try:
+            print(f"[AI_DEBUG] 🔍 DB에서 세션별 메시지 조회 시작 (세션: {session.session_id})")
+            
+            # AI 세션의 메시지들을 시간순으로 조회
+            messages = list(
+                AiChatMessage.objects.filter(session=session)
+                .select_related('sender__user')
+                .order_by('created_at')[:limit]  # 오래된 것부터 최신 순으로
+            )
+            
+            print(f"[AI_DEBUG] 📊 DB 조회 결과: {len(messages)}개 메시지 발견")
+            
+            history_data = []
+            
+            for msg in messages:
+                message_data = {
+                    "id": msg.id,
+                    "message": msg.content,
+                    "username": msg.sender.user.username,
+                    "timestamp": msg.created_at.isoformat(),
+                    "is_ai": msg.is_ai_message,
+                    "is_self": msg.sender == self.user_profile,
+                }
+                history_data.append(message_data)
+                print(f"[AI_DEBUG] 💬 메시지 추가: {msg.sender.user.username} - {msg.content[:30]}...")
+            
+            print(f"[AI_DEBUG] ✅ 클라이언트용 히스토리 조회 완료: {len(history_data)}개 메시지")
+            return history_data
+            
+        except Exception as e:
+            print(f"[AI_ERROR] 💥 클라이언트 히스토리 조회 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    async def _send_message_history(self):
+        """WebSocket 연결 시 기존 메시지 히스토리 전송"""
+        try:
+            print(f"[AI_DEBUG] 🚀 메시지 히스토리 전송 시작... (세션: {self.session_id})")
+            
+            # 기존 메시지 히스토리 조회
+            history_messages = await self._get_message_history_for_client(self.ai_session, limit=50)
+            print(f"[AI_DEBUG] 📝 히스토리 조회 결과: {len(history_messages) if history_messages else 0}개 메시지")
+            
+            if history_messages:
+                print(f"[AI_DEBUG] 📨 {len(history_messages)}개의 기존 메시지 발견")
+                
+                # 📧 개별 메시지를 하나씩 전송 (안전한 방식)
+                for i, msg in enumerate(history_messages):
+                    try:
+                        # 단일 메시지 전송
+                        single_message = {
+                            "type": "chat_message",
+                            "message": msg["message"],
+                            "username": msg["username"],
+                            "timestamp": msg["timestamp"],
+                            "is_ai": msg.get("is_ai", False),
+                            "from_history": True  # 히스토리에서 온 메시지임을 표시
+                        }
+                        
+                        await self.send(text_data=json.dumps(single_message))
+                        print(f"[AI_DEBUG] ✅ 히스토리 메시지 전송 ({i+1}/{len(history_messages)}): {msg['username']} - {msg['message'][:20]}...")
+                        
+                        # 메시지 간 짧은 딜레이 (프론트엔드 처리 시간 확보)
+                        import asyncio
+                        await asyncio.sleep(0.01)
+                        
+                    except Exception as msg_error:
+                        print(f"[AI_ERROR] 개별 메시지 전송 실패 ({i+1}): {msg_error}")
+                        continue
+                
+                # 📋 히스토리 전송 완료 알림
+                completion_payload = {
+                    "type": "history_complete",
+                    "total_messages": len(history_messages),
+                    "session_id": self.session_id
+                }
+                await self.send(text_data=json.dumps(completion_payload))
+                print(f"[AI_DEBUG] 🎉 메시지 히스토리 전송 완료: {len(history_messages)}개")
+                
+            else:
+                print(f"[AI_DEBUG] 📭 기존 메시지 없음 - 새로운 AI 세션")
+                
+                # 빈 히스토리 완료 알림
+                empty_payload = {
+                    "type": "history_complete",
+                    "total_messages": 0,
+                    "session_id": self.session_id
+                }
+                await self.send(text_data=json.dumps(empty_payload))
+                print(f"[AI_DEBUG] 📤 빈 히스토리 전송 완료")
+                
+        except Exception as e:
+            print(f"[AI_ERROR] 💥 메시지 히스토리 전송 실패: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            # 에러 시에도 완료 알림 전송 (무한 로딩 방지)
+            try:
+                await self.send(text_data=json.dumps({
+                    "type": "history_complete", 
+                    "total_messages": 0,
+                    "error": "히스토리 로드 중 오류가 발생했습니다."
+                }))
+            except Exception as send_error:
+                print(f"[AI_ERROR] 에러 메시지 전송도 실패: {send_error}")
+
+    @database_sync_to_async
+    def _get_paginated_message_history(self, session: AiChatSession, offset: int, limit: int):
+        """페이지네이션을 지원하는 메시지 히스토리 조회"""
+        try:
+            messages = list(
+                AiChatMessage.objects.filter(session=session)
+                .select_related('sender__user')
+                .order_by('created_at')[offset:offset + limit]  # 오래된 것부터
+            )
+            
+            history_data = []
+            for msg in messages:
+                message_data = {
+                    "id": msg.id,
+                    "message": msg.content,
+                    "username": msg.sender.user.username,
+                    "timestamp": msg.created_at.isoformat(),
+                    "is_ai": msg.is_ai_message,
+                    "is_self": msg.sender == self.user_profile,
+                }
+                history_data.append(message_data)
+            
+            return history_data
+            
+        except Exception as e:
+            print(f"[AI_ERROR] 페이지네이션 히스토리 조회 실패: {e}")
+            return []
+
+    @database_sync_to_async  
+    def _get_total_message_count(self, session: AiChatSession):
+        """AI 세션의 총 메시지 수 조회"""
+        try:
+            return AiChatMessage.objects.filter(session=session).count()
+        except Exception as e:
+            print(f"[AI_ERROR] 메시지 수 조회 실패: {e}")
+            return 0

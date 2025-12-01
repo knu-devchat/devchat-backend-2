@@ -65,25 +65,37 @@ def start_ai_session(request):
         
         print(f"[AI_API] 권한 확인 완료 - 방장: {is_admin}, 참가자: {is_participant}")
 
-        # 5. 고유한 세션 ID 생성
-        new_session_id = str(uuid.uuid4())
-        
-        # 6. AiChatSession 객체 생성 및 DB 저장
-        session = AiChatSession.objects.create(
+        # 5. 기존 활성 세션 확인 (방별로 하나의 활성 세션만 유지)
+        existing_session = AiChatSession.objects.filter(
             base_room=base_room,
-            session_id=new_session_id,
             is_active=True
-        )
+        ).first()
         
-        print(f"[AI_API SUCCESS] ✅ AI 세션 생성 완료: {new_session_id}")
+        if existing_session:
+            print(f"[AI_API] 🔄 기존 활성 세션 재사용: {existing_session.session_id}")
+            session_id = existing_session.session_id
+            message = "기존 AI 세션에 연결되었습니다."
+            status_code = 200
+        else:
+            # 6. 새로운 세션 생성
+            new_session_id = str(uuid.uuid4())
+            session = AiChatSession.objects.create(
+                base_room=base_room,
+                session_id=new_session_id,
+                is_active=True
+            )
+            print(f"[AI_API] ✨ 새 AI 세션 생성 완료: {new_session_id}")
+            session_id = new_session_id
+            message = "새로운 AI 세션이 생성되었습니다."
+            status_code = 201
 
         return JsonResponse({
             "result": "success",
-            "session_id": new_session_id,
+            "session_id": session_id,
             "room_uuid": str(base_room.room_uuid),
             "room_name": base_room.room_name,
-            "message": "AI 세션이 생성되었습니다."
-        }, status=201)
+            "message": message
+        }, status=status_code)
         
     except Exception as e:
         print(f"[AI_API ERROR] AI 세션 생성 중 예외 발생: {e}")
