@@ -192,7 +192,7 @@ def join_room(request, room_uuid):
 
 @require_GET
 @login_required
-def enter_room(request):
+def view_room(request):
     """이미 참여한 방은 인증 없이 입장"""
     # res: result(entered), room_id(12)
     pass
