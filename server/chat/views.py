@@ -569,55 +569,56 @@ def get_current_room_info(request):
         return JsonResponse({"error": f"Failed to get room info: {str(e)}"}, status=500)
 
 
-@api_view(['GET'])
+@require_GET
+@login_required
 def get_room_messages(request, room_uuid):
-    """채팅방의 메시지 내역 조회 (HTTP API)"""
+    """채팅방의 메시지 내역 조회 (Django API)"""
     try:
         print(f"[API] 메시지 조회 요청 - room_uuid: {room_uuid}")
         
         # 1. 인증 확인
         if not request.user.is_authenticated:
-            return Response({
+            return JsonResponse({
                 "result": "error", 
                 "message": "로그인이 필요합니다."
-            }, status=status.HTTP_401_UNAUTHORIZED)
+            }, status=401)
 
         # 2. UUID 형식 검증
         try:
             room_uuid_obj = uuid.UUID(room_uuid)
         except ValueError:
-            return Response({
+            return JsonResponse({
                 "result": "error",
                 "message": "잘못된 UUID 형식입니다."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            }, status=400)
 
         # 3. 사용자 프로필 조회
         try:
             user_profile = UserProfile.objects.get(user=request.user)
         except UserProfile.DoesNotExist:
-            return Response({
+            return JsonResponse({
                 "result": "error",
                 "message": "사용자 프로필을 찾을 수 없습니다."
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=404)
 
         # 4. 채팅방 조회
         try:
             room = ChatRoom.objects.select_related('admin__user').get(room_uuid=room_uuid_obj)
         except ChatRoom.DoesNotExist:
-            return Response({
+            return JsonResponse({
                 "result": "error",
                 "message": "존재하지 않는 채팅방입니다."
-            }, status=status.HTTP_404_NOT_FOUND)
+            }, status=404)
 
         # 5. 권한 확인 (방장이거나 참가자여야 함)
         is_admin = room.admin == user_profile
         is_participant = user_profile in room.participants.all()
         
         if not (is_admin or is_participant):
-            return Response({
+            return JsonResponse({
                 "result": "error",
                 "message": "채팅방에 참여 권한이 없습니다."
-            }, status=status.HTTP_403_FORBIDDEN)
+            }, status=403)
 
         # 6. 페이지네이션 파라미터
         page = int(request.GET.get('page', 1))
@@ -638,10 +639,10 @@ def get_room_messages(request, room_uuid):
         try:
             page_obj = paginator.get_page(page)
         except:
-            return Response({
+            return JsonResponse({
                 "result": "error",
                 "message": "잘못된 페이지 번호입니다."
-            }, status=status.HTTP_400_BAD_REQUEST)
+            }, status=400)
 
         # 8. 응답 데이터 구성 (채팅 순서대로 정렬)
         message_list = []
@@ -657,7 +658,7 @@ def get_room_messages(request, room_uuid):
 
         print(f"[API] ✅ 메시지 조회 완료 - {len(message_list)}개 (총 {total_count}개)")
 
-        return Response({
+        return JsonResponse({
             "result": "success",
             "messages": message_list,
             "room_info": {
@@ -675,13 +676,13 @@ def get_room_messages(request, room_uuid):
                 "has_previous": page_obj.has_previous(),
                 "num_pages": paginator.num_pages
             }
-        }, status=status.HTTP_200_OK)
+        })
 
     except Exception as e:
         print(f"[ERROR] 메시지 조회 API 실패: {e}")
         import traceback
         traceback.print_exc()
-        return Response({
+        return JsonResponse({
             "result": "error",
             "message": "서버 내부 오류가 발생했습니다."
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        }, status=500)
