@@ -372,15 +372,15 @@ def select_room(request):
             return auth_error
         
         data = json.loads(request.body)
-        room_id = data.get('room_uuid')  # 방 목록에서 받은 ID (UUID)
+        room_uuid = data.get('room_uuid')  # 방 목록에서 받은 ID (UUID)
         
-        if not room_id:
+        if not room_uuid:
             return JsonResponse({"error": "Room ID is required"}, status=400)
         
         # 권한 확인
         user_profile = UserProfile.objects.get(user=request.user)
         try:
-            room = ChatRoom.objects.get(room_uuid=room_id)
+            room = ChatRoom.objects.get(room_uuid=room_uuid)
             
             is_admin = (room.admin == user_profile)
             is_participant = user_profile in room.participants.all()
@@ -389,7 +389,7 @@ def select_room(request):
                 return JsonResponse({"error": "Access denied"}, status=403)
             
             # 세션에 선택된 방 저장
-            request.session['selected_room_uuid'] = room_id
+            request.session['selected_room_uuid'] = room_uuid
             
             return JsonResponse({
                 "result": "success",
