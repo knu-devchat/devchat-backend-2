@@ -26,8 +26,7 @@ services:
       sh -c "cd /app/server &&
              python manage.py migrate &&
              python manage.py collectstatic --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
-
+             daphne server.asgi:application -b 0.0.0.0 -p 8000"
 volumes:
   sqlite_data:
   redis_data:

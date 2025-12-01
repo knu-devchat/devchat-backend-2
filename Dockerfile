@@ -29,4 +29,4 @@ User.objects.filter(username='\''admin'\'').update(password='\''pbkdf2_sha256$60
 exec "$@"' > /docker-entrypoint.sh && chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
+CMD ["daphne", "server.asgi:application", "-b", "0.0.0.0", "-p", "8000"]

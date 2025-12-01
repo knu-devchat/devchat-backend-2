@@ -81,7 +81,9 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def _get_user_profile(self, user) -> UserProfile:
         """Django User 객체를 통해 연결된 UserProfile을 가져옵니다."""
         # Django User와 UserProfile의 관계를 사용 (user=user)
-        return UserProfile.objects.get(user=user) 
+        # UserProfile이 없으면 자동으로 생성
+        profile, created = UserProfile.objects.get_or_create(user=user)
+        return profile 
 
     @database_sync_to_async
     def _get_room(self, room_name: str) -> ChatRoom:
@@ -94,5 +96,5 @@ class ChatConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def _save_message(self, room: ChatRoom, sender: UserProfile, content: str) -> Message:
         """메시지를 DB에 저장합니다."""
-        # Message 모델의 필드(chatroom, sender, content)에 맞게 저장
-        return Message.objects.create(chatroom=room, sender=sender, content=content)
+        # Message 모델의 필드(room, sender, content)에 맞게 저장
+        return Message.objects.create(room=room, sender=sender, content=content)
