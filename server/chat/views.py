@@ -220,7 +220,7 @@ def delete_room(request):
 
 @require_GET
 @login_required
-def generate_totp_for_selected_room(request, room_uuid):
+def generate_totp(request, room_uuid):
     """현재 선택된 방의 TOTP 생성 - 방장만 가능"""
     try:
         auth_error = check_authentication(request)
