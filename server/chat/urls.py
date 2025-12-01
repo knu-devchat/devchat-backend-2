@@ -5,9 +5,12 @@ app_name = "chat"
 
 # api/chat/
 urlpatterns = [
-    path('chat-rooms/', views.create_chat_room, name='create_chat_room'), # 채팅방 생성
-    path('chat-rooms/<uuid:room_uuid>/access-code/', views.generate_TOTP, name='generate_TOTP'), # TOTP 생성
-    path('chat-rooms/<uuid:room_uuid>/join/', views.join_room, name='join_room'), # 채팅방 참가
-    path('chat-rooms/<uuid:room_uuid>/view/', views.view_room, name='view_room'), # 채팅방 조회
-    path('chat-rooms/<str:room_name>/messages/', views.list_messages, name='list_messages'), # 메세지 조회
+    path('my-rooms/', views.get_my_rooms, name='get_my_rooms'), # 내 방 목록 (UUID 포함해서 반환)
+    path('rooms/', views.create_chat_room, name='create_chat_room'), # 방 생성
+    path('delete-room/', views.delete_room, name='delete_room'), # 방 삭제
+    path('access-code/', views.generate_totp_for_selected_room, name='generate_totp_for_selected_room'), # 현재 선택된 방의 TOTP 생성
+    path('join/', views.join_room, name='join_room'), # TOTP로 방 참가
+    path('select-room/', views.select_room, name='select_room'), # 방 선택
+    path('current-room/', views.get_current_room_info, name='get_current_room_info'), # 현재 선택된 방 정보 조회
+    path('messages/', views.list_messages, name='list_messages'), # 메세지 조회
 ]
