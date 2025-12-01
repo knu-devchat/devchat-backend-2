@@ -22,6 +22,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
         
         # UserProfile 가져오기 (메시지 저장 시 sender로 사용)
         self.sender_profile = await self._get_user_profile(self.user)
+        # username을 미리 저장 (async context에서 DB 접근 방지)
+        self.username = self.user.username
         
         # 채팅방 존재 여부 확인
         self.room = await self._get_room(self.room_name)
@@ -59,7 +61,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             {
                 "type": "chat_message",
                 "message": message,
-                "username": self.sender_profile.username, # UserProfile에서 username 사용
+                "username": self.username, # 미리 저장된 username 사용
                 "message_id": stored_message.id,
                 "created_at": stored_message.created_at.isoformat(),
             },
